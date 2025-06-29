@@ -1,25 +1,47 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, Modal, TextInput, Alert } from 'react-native';
+// app/(tabs)/index.tsx
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, Modal, TextInput, Alert, RefreshControl } from 'react-native';
 import { router } from 'expo-router';
 import { useAppSelector, useAppDispatch } from '@/hooks';
-import { generateStoryStart, generateStorySuccess, generateStoryFailure, setCurrentStory } from '@/store/slices/storySlice';
-import { storyService } from '@/services/storyService';
+import {
+  generateStoryAsync,
+  loadUserStories,
+  setCurrentStory,
+  setCurrentServerStory,
+  clearError,
+  refreshStories
+} from '@/store/slices/storySlice';
 import CustomButton from '@/components/CustomButton';
 import StoryCard from '@/components/StoryCard';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Colors } from '@/constants/Colors';
-import { Plus, Sparkles, X } from 'lucide-react-native';
+import { Plus, Sparkles, X, RefreshCw } from 'lucide-react-native';
 
 export default function HomeScreen() {
   const dispatch = useAppDispatch();
-  const { user } = useAppSelector((state) => state.auth);
-  const { stories, isGenerating } = useAppSelector((state) => state.stories);
-  
+  const { user, firebase_token } = useAppSelector((state) => state.auth);
+  const { stories, isGenerating, generationProgress, error, isLoadingStories } = useAppSelector((state) => state.stories);
+
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
   const [systemPrompt, setSystemPrompt] = useState(user?.defaultSystemPrompt || '');
+  const [refreshing, setRefreshing] = useState(false);
 
   const recentStories = stories.slice(0, 5);
+
+  // Load stories when component mounts
+  useEffect(() => {
+    if (firebase_token) {
+      dispatch(loadUserStories(firebase_token));
+    }
+  }, [firebase_token, dispatch]);
+
+  // Update system prompt when user data changes
+  useEffect(() => {
+    if (user?.defaultSystemPrompt) {
+      setSystemPrompt(user.defaultSystemPrompt);
+    }
+  }, [user?.defaultSystemPrompt]);
 
   const handleGenerateStory = async () => {
     if (!customPrompt.trim()) {
@@ -27,28 +49,105 @@ export default function HomeScreen() {
       return;
     }
 
-    dispatch(generateStoryStart());
+    if (!firebase_token) {
+      Alert.alert('Authentication Error', 'Please log in again to create stories.');
+      return;
+    }
+
     setShowPromptModal(false);
 
     try {
-      const story = await storyService.generateStory(systemPrompt, customPrompt);
-      dispatch(generateStorySuccess(story));
+      console.log('🎬 Starting story generation...');
+      await dispatch(generateStoryAsync({
+        firebase_token,
+        prompt: customPrompt
+      })).unwrap();
+
       setCustomPrompt('');
-      Alert.alert('Story Created!', 'Your magical story has been generated successfully!');
-    } catch (error) {
-      dispatch(generateStoryFailure('Failed to generate story. Please try again.'));
-      Alert.alert('Error', 'Failed to generate story. Please try again.');
+      Alert.alert(
+        'Story Created!',
+        'Your magical story has been generated successfully!',
+        [
+          {
+            text: 'View Story',
+            onPress: () => {
+              // The latest story should be at the beginning of the stories array
+              const latestStory = stories[0];
+              if (latestStory) {
+                handleStoryPress(latestStory);
+              }
+            }
+          },
+          { text: 'Create Another', style: 'cancel' }
+        ]
+      );
+    } catch (error: any) {
+      console.error('Story generation error:', error);
+      Alert.alert(
+        'Story Generation Failed',
+        error.message || 'Failed to generate story. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
-  const handleStoryPress = (story: any) => {
-    dispatch(setCurrentStory(story));
-    router.push('/story-player');
+  const handleStoryPress = async (story: any) => {
+    try {
+      if (story.scenes && story.scenes.length > 0) {
+        // Story has server data with scenes, use it directly
+        dispatch(setCurrentServerStory({
+          story_id: story.id,
+          title: story.title,
+          user_prompt: story.description,
+          total_scenes: story.scenes.length,
+          total_duration: story.duration || 0,
+          scenes: story.scenes,
+          status: 'completed',
+          generated_at: story.generatedTime,
+        }));
+      } else {
+        // Story is just metadata, need to load full details
+        dispatch(setCurrentStory(story));
+      }
+
+      router.push('/story-player');
+    } catch (error) {
+      console.error('Error loading story:', error);
+      Alert.alert('Error', 'Failed to load story details.');
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!firebase_token) return;
+
+    setRefreshing(true);
+    try {
+      await dispatch(refreshStories(firebase_token)).unwrap();
+    } catch (error) {
+      console.warn('Refresh failed:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    await handleRefresh();
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[Colors.primary]}
+            tintColor={Colors.primary}
+          />
+        }
+      >
         <View style={styles.header}>
           <Text style={styles.greeting}>
             Hello, {user?.childName}! 👋
@@ -70,15 +169,49 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Show generation progress */}
         {isGenerating && (
           <View style={styles.loadingSection}>
-            <LoadingSpinner message="Creating your magical story..." />
+            <LoadingSpinner message={generationProgress || "Creating your magical story..."} />
+            <Text style={styles.progressText}>
+              {generationProgress || "This may take 30-60 seconds..."}
+            </Text>
+          </View>
+        )}
+
+        {/* Show any errors */}
+        {error && (
+          <View style={styles.errorSection}>
+            <Text style={styles.errorText}>{error}</Text>
+            <CustomButton
+              title="Try Again"
+              onPress={() => dispatch(clearError())}
+              variant="outline"
+              size="small"
+            />
           </View>
         )}
 
         <View style={styles.recentSection}>
-          <Text style={styles.sectionTitle}>Recent Stories</Text>
-          {recentStories.length > 0 ? (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Stories</Text>
+            {stories.length > 0 && (
+              <CustomButton
+                title="Refresh"
+                onPress={handleRefresh}
+                variant="outline"
+                size="small"
+                style={styles.refreshButton}
+                disabled={refreshing || isLoadingStories}
+              />
+            )}
+          </View>
+
+          {isLoadingStories ? (
+            <View style={styles.loadingSection}>
+              <LoadingSpinner message="Loading your stories..." />
+            </View>
+          ) : recentStories.length > 0 ? (
             recentStories.map((story) => (
               <StoryCard
                 key={story.id}
@@ -118,6 +251,9 @@ export default function HomeScreen() {
           <ScrollView style={styles.modalContent}>
             <View style={styles.promptSection}>
               <Text style={styles.promptLabel}>What story would you like to hear?</Text>
+              <Text style={styles.promptHelper}>
+                Be specific! For example: "A brave little mouse who goes on an adventure to find magical cheese"
+              </Text>
               <TextInput
                 style={styles.promptInput}
                 value={customPrompt}
@@ -131,6 +267,9 @@ export default function HomeScreen() {
 
             <View style={styles.promptSection}>
               <Text style={styles.promptLabel}>Story Instructions (Optional)</Text>
+              <Text style={styles.promptHelper}>
+                These instructions help customize the story style. Leave blank to use your default preferences.
+              </Text>
               <TextInput
                 style={styles.promptInput}
                 value={systemPrompt}
@@ -146,8 +285,12 @@ export default function HomeScreen() {
               title="Generate Story"
               onPress={handleGenerateStory}
               style={styles.generateModalButton}
-              disabled={!customPrompt.trim()}
+              disabled={!customPrompt.trim() || isGenerating}
             />
+
+            <Text style={styles.modalFooterText}>
+              ✨ Stories are generated with magical illustrations and narration!
+            </Text>
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -195,17 +338,48 @@ const styles = StyleSheet.create({
   },
   loadingSection: {
     paddingVertical: 20,
+    paddingHorizontal: 24,
+  },
+  progressText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  errorSection: {
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    backgroundColor: '#FFF5F5',
+    marginHorizontal: 24,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.error,
+  },
+  errorText: {
+    fontSize: 14,
+    color: Colors.error,
+    textAlign: 'center',
+    marginBottom: 12,
   },
   recentSection: {
     paddingTop: 24,
     paddingBottom: 40,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     color: Colors.text,
-    paddingHorizontal: 24,
-    marginBottom: 16,
+  },
+  refreshButton: {
+    minWidth: 80,
   },
   emptyState: {
     paddingHorizontal: 24,
@@ -252,7 +426,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: Colors.text,
+    marginBottom: 4,
+  },
+  promptHelper: {
+    fontSize: 14,
+    color: Colors.textSecondary,
     marginBottom: 8,
+    lineHeight: 20,
   },
   promptInput: {
     borderWidth: 1,
@@ -267,6 +447,12 @@ const styles = StyleSheet.create({
   },
   generateModalButton: {
     marginTop: 16,
+    marginBottom: 20,
+  },
+  modalFooterText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
     marginBottom: 40,
   },
 });

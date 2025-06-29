@@ -1,8 +1,9 @@
+// app/auth/register.tsx
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAppDispatch } from '@/hooks';
-import { loginStart, loginSuccess } from '@/store/slices/authSlice';
+import { registerUser } from '@/store/slices/authSlice';
 import CustomInput from '@/components/CustomInput';
 import CustomButton from '@/components/CustomButton';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -15,7 +16,13 @@ const interests = [
 ];
 
 export default function RegisterScreen() {
-  const { email, password } = useLocalSearchParams<{ email: string; password: string }>();
+  const { email, password, firebase_token, isExistingUser } = useLocalSearchParams<{
+    email: string;
+    password: string;
+    firebase_token?: string;
+    isExistingUser?: string;
+  }>();
+
   const dispatch = useAppDispatch();
 
   const [formData, setFormData] = useState({
@@ -58,38 +65,65 @@ export default function RegisterScreen() {
   };
 
   const toggleInterest = (interest: string) => {
-    setSelectedInterests(prev => 
+    setSelectedInterests(prev =>
       prev.includes(interest)
         ? prev.filter(i => i !== interest)
         : [...prev, interest]
     );
+
+    // Clear interests error if they select one
+    if (errors.interests && !selectedInterests.includes(interest)) {
+      setErrors(prev => ({ ...prev, interests: undefined }));
+    }
+  };
+
+  const generateSystemPrompt = () => {
+    const interests_str = selectedInterests.join(', ');
+    return formData.defaultSystemPrompt ||
+      `Create magical, educational stories suitable for ${formData.childName}, a ${formData.childAge}-year-old child who loves ${interests_str}. Use age-appropriate language with simple, engaging stories that build imagination and confidence.`;
   };
 
   const handleRegister = async () => {
     if (!validateForm()) return;
 
     setIsLoading(true);
-    dispatch(loginStart());
 
     try {
-      // Mock registration - replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      const userData = {
-        id: Date.now().toString(),
+      const registrationData = {
+        email: email!,
+        password: password!,
+        parentName: formData.parentName,
+        parentPhone: formData.parentPhone,
         childName: formData.childName,
         childAge: parseInt(formData.childAge),
         childInterests: selectedInterests,
-        parentEmail: email,
-        parentName: formData.parentName,
-        parentPhone: formData.parentPhone,
-        defaultSystemPrompt: formData.defaultSystemPrompt || 
-          `Create magical, educational stories suitable for ${formData.childName}, a ${formData.childAge}-year-old child who loves ${selectedInterests.join(', ')}.`,
+        systemPrompt: generateSystemPrompt(),
       };
 
-      dispatch(loginSuccess(userData));
-      router.replace('/(tabs)');
-    } catch (error) {
+      console.log('🔐 Starting registration process...');
+      await dispatch(registerUser(registrationData)).unwrap();
+
+      // Success! Show success message and redirect
+      Alert.alert(
+        'Welcome to Story Magic!',
+        `Profile created successfully for ${formData.childName}. Let's start creating magical stories!`,
+        [
+          {
+            text: 'Start Creating Stories',
+            onPress: () => router.replace('/(tabs)'),
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Registration error:', error);
+
+      // Show user-friendly error message
+      Alert.alert(
+        'Registration Failed',
+        error.message || 'Something went wrong. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
       setIsLoading(false);
     }
   };
@@ -97,7 +131,7 @@ export default function RegisterScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <LoadingSpinner message="Creating your account..." />
+        <LoadingSpinner message="Creating your magical story account..." />
       </SafeAreaView>
     );
   }
@@ -115,7 +149,12 @@ export default function RegisterScreen() {
             <CustomInput
               label="Child's Name"
               value={formData.childName}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, childName: text }))}
+              onChangeText={(text) => {
+                setFormData(prev => ({ ...prev, childName: text }));
+                if (errors.childName) {
+                  setErrors(prev => ({ ...prev, childName: undefined }));
+                }
+              }}
               placeholder="Enter your child's name"
               error={errors.childName}
             />
@@ -123,7 +162,12 @@ export default function RegisterScreen() {
             <CustomInput
               label="Child's Age"
               value={formData.childAge}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, childAge: text }))}
+              onChangeText={(text) => {
+                setFormData(prev => ({ ...prev, childAge: text }));
+                if (errors.childAge) {
+                  setErrors(prev => ({ ...prev, childAge: undefined }));
+                }
+              }}
               placeholder="Enter age (3-12)"
               keyboardType="numeric"
               error={errors.childAge}
@@ -131,6 +175,7 @@ export default function RegisterScreen() {
 
             <View style={styles.interestsSection}>
               <Text style={styles.label}>Child's Interests</Text>
+              <Text style={styles.helperText}>Select all that apply:</Text>
               <View style={styles.interestsGrid}>
                 {interests.map((interest) => (
                   <TouchableOpacity
@@ -156,37 +201,67 @@ export default function RegisterScreen() {
               {errors.interests && <Text style={styles.errorText}>{errors.interests}</Text>}
             </View>
 
-            <CustomInput
-              label="Parent Name"
-              value={formData.parentName}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, parentName: text }))}
-              placeholder="Enter your name"
-              error={errors.parentName}
-            />
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Parent Information</Text>
 
-            <CustomInput
-              label="Phone Number"
-              value={formData.parentPhone}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, parentPhone: text }))}
-              placeholder="Enter your phone number"
-              keyboardType="phone-pad"
-              error={errors.parentPhone}
-            />
+              <CustomInput
+                label="Your Name"
+                value={formData.parentName}
+                onChangeText={(text) => {
+                  setFormData(prev => ({ ...prev, parentName: text }));
+                  if (errors.parentName) {
+                    setErrors(prev => ({ ...prev, parentName: undefined }));
+                  }
+                }}
+                placeholder="Enter your name"
+                error={errors.parentName}
+              />
 
-            <CustomInput
-              label="Custom Story Instructions (Optional)"
-              value={formData.defaultSystemPrompt}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, defaultSystemPrompt: text }))}
-              placeholder="Any special instructions for story generation..."
-              multiline
-              numberOfLines={3}
-              style={styles.textArea}
-            />
+              <CustomInput
+                label="Email Address"
+                value={email || ''}
+                editable={false}
+                style={styles.readOnlyInput}
+              />
+
+              <CustomInput
+                label="Phone Number"
+                value={formData.parentPhone}
+                onChangeText={(text) => {
+                  setFormData(prev => ({ ...prev, parentPhone: text }));
+                  if (errors.parentPhone) {
+                    setErrors(prev => ({ ...prev, parentPhone: undefined }));
+                  }
+                }}
+                placeholder="Enter your phone number"
+                keyboardType="phone-pad"
+                error={errors.parentPhone}
+              />
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Story Preferences (Optional)</Text>
+
+              <CustomInput
+                label="Custom Story Instructions"
+                value={formData.defaultSystemPrompt}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, defaultSystemPrompt: text }))}
+                placeholder="Any special instructions for story generation..."
+                multiline
+                numberOfLines={3}
+                style={styles.textArea}
+              />
+
+              <Text style={styles.helperText}>
+                Leave blank to use our smart defaults based on {formData.childName || "your child"}'s age and interests.
+              </Text>
+            </View>
 
             <CustomButton
-              title="Create Account"
+              title={isExistingUser === 'true' ? 'Complete Profile' : 'Create Account'}
               onPress={handleRegister}
               style={styles.registerButton}
+              disabled={isLoading}
             />
           </View>
         </View>
@@ -225,14 +300,28 @@ const styles = StyleSheet.create({
   form: {
     width: '100%',
   },
-  interestsSection: {
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.text,
     marginBottom: 16,
+  },
+  interestsSection: {
+    marginBottom: 24,
   },
   label: {
     fontSize: 16,
     fontWeight: '500',
     color: Colors.text,
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  helperText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 12,
   },
   interestsGrid: {
     flexDirection: 'row',
@@ -266,6 +355,10 @@ const styles = StyleSheet.create({
   textArea: {
     height: 80,
     textAlignVertical: 'top',
+  },
+  readOnlyInput: {
+    backgroundColor: Colors.surface,
+    color: Colors.textSecondary,
   },
   registerButton: {
     marginTop: 24,

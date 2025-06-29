@@ -1,8 +1,9 @@
+// app/auth/login.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, Alert } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAppDispatch, useAppSelector } from '@/hooks';
-import { loginStart, loginSuccess, loginFailure } from '@/store/slices/authSlice';
+import { loginWithEmailPassword, clearError } from '@/store/slices/authSlice';
 import CustomInput from '@/components/CustomInput';
 import CustomButton from '@/components/CustomButton';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -15,13 +16,20 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
   const dispatch = useAppDispatch();
-  const { isLoading, error, isAuthenticated } = useAppSelector((state) => state.auth);
+  const { isLoading, error, isAuthenticated, firebase_token } = useAppSelector((state) => state.auth);
 
   useEffect(() => {
     if (isAuthenticated) {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    // Clear any previous errors when component mounts
+    if (error) {
+      dispatch(clearError());
+    }
+  }, []);
 
   const validateForm = () => {
     const newErrors: { email?: string; password?: string } = {};
@@ -45,27 +53,40 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     if (!validateForm()) return;
 
-    dispatch(loginStart());
+    dispatch(clearError());
 
     try {
-      // Mock login - replace with actual authentication
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Mock user data
-      const userData = {
-        id: '1',
-        childName: 'Emma',
-        childAge: 6,
-        childInterests: ['adventures', 'animals', 'magic'],
-        parentEmail: email,
-        parentName: 'Parent',
-        parentPhone: '+1234567890',
-        defaultSystemPrompt: 'Create magical, educational stories suitable for a 6-year-old child.',
-      };
+      const result = await dispatch(loginWithEmailPassword({ email, password })).unwrap();
 
-      dispatch(loginSuccess(userData));
-    } catch (err) {
-      dispatch(loginFailure('Invalid email or password'));
+      if (result.hasProfile) {
+        // User has complete profile, redirect to main app
+        router.replace('/(tabs)');
+      } else {
+        // User exists but needs to complete registration
+        Alert.alert(
+          'Complete Your Profile',
+          'Please complete your profile to continue.',
+          [
+            {
+              text: 'Continue',
+              onPress: () => {
+                router.push({
+                  pathname: '/auth/register',
+                  params: {
+                    email,
+                    password,
+                    firebase_token: result.firebase_token,
+                    isExistingUser: 'true'
+                  },
+                });
+              },
+            },
+          ]
+        );
+      }
+    } catch (err: any) {
+      console.error('Login error:', err);
+      // Error is handled by Redux and will show in UI
     }
   };
 
@@ -90,7 +111,12 @@ export default function LoginScreen() {
           <CustomInput
             label="Email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (errors.email) {
+                setErrors(prev => ({ ...prev, email: undefined }));
+              }
+            }}
             placeholder="Enter your email"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -100,18 +126,28 @@ export default function LoginScreen() {
           <CustomInput
             label="Password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              if (errors.password) {
+                setErrors(prev => ({ ...prev, password: undefined }));
+              }
+            }}
             placeholder="Enter your password"
             secureTextEntry
             error={errors.password}
           />
 
-          {error && <Text style={styles.errorText}>{error}</Text>}
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
 
           <CustomButton
             title="Sign In"
             onPress={handleLogin}
             style={styles.loginButton}
+            disabled={isLoading}
           />
 
           <View style={styles.linkContainer}>
@@ -174,10 +210,18 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '600',
   },
+  errorContainer: {
+    backgroundColor: '#FFF5F5',
+    borderColor: Colors.error,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
   errorText: {
     fontSize: 14,
     color: Colors.error,
     textAlign: 'center',
-    marginBottom: 16,
   },
 });

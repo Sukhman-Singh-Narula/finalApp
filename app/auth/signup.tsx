@@ -1,3 +1,4 @@
+// app/auth/signup.tsx
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
 import { Link, router } from 'expo-router';
@@ -37,7 +38,7 @@ export default function SignUpScreen() {
 
   const handleSignUp = () => {
     if (!validateForm()) return;
-    
+
     // Navigate to registration screen with email and password
     router.push({
       pathname: '/auth/register',
@@ -58,7 +59,12 @@ export default function SignUpScreen() {
           <CustomInput
             label="Email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (errors.email) {
+                setErrors(prev => ({ ...prev, email: undefined }));
+              }
+            }}
             placeholder="Enter your email"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -68,7 +74,12 @@ export default function SignUpScreen() {
           <CustomInput
             label="Password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              if (errors.password) {
+                setErrors(prev => ({ ...prev, password: undefined }));
+              }
+            }}
             placeholder="Create a password"
             secureTextEntry
             error={errors.password}
@@ -77,7 +88,12 @@ export default function SignUpScreen() {
           <CustomInput
             label="Confirm Password"
             value={confirmPassword}
-            onChangeText={setConfirmPassword}
+            onChangeText={(text) => {
+              setConfirmPassword(text);
+              if (errors.confirmPassword) {
+                setErrors(prev => ({ ...prev, confirmPassword: undefined }));
+              }
+            }}
             placeholder="Confirm your password"
             secureTextEntry
             error={errors.confirmPassword}
