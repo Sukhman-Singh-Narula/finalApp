@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - UPDATED VERSION
+// app/(tabs)/index.tsx - ENHANCED WITH DEBUGGING
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -14,7 +14,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BookOpen, Wand as Wand2, Settings, Sparkles, Heart, Play, Clock } from 'lucide-react-native';
+import { BookOpen, Wand as Wand2, Settings, Sparkles, Heart, Play, Clock, AlertCircle, RefreshCw } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService, type Story } from '@/services/apiService';
@@ -25,11 +25,14 @@ export default function HomeScreen() {
 
   const [promptModalVisible, setPromptModalVisible] = useState(false);
   const [storyModalVisible, setStoryModalVisible] = useState(false);
+  const [debugModalVisible, setDebugModalVisible] = useState(false);
   const [newPrompt, setNewPrompt] = useState('');
   const [storyPrompt, setStoryPrompt] = useState('');
   const [stories, setStories] = useState<Story[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [loadingStories, setLoadingStories] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (user && token) {
@@ -61,18 +64,66 @@ export default function HomeScreen() {
         
         setStories(formattedStories);
         console.log('✅ Recent stories loaded:', formattedStories.length);
+        
+        // Update debug info
+        setDebugInfo({
+          ...debugInfo,
+          lastFetch: new Date().toISOString(),
+          storiesFound: formattedStories.length,
+          totalCount: response.total_count || 0,
+          method: response.summary?.method_used || 'unknown',
+          userInfo: response.user_info
+        });
       } else {
-        console.log('No stories found or request failed');
+        console.log('❌ No stories found or request failed:', response.message);
         setStories([]);
+        
+        // Update debug info with error
+        setDebugInfo({
+          ...debugInfo,
+          lastFetch: new Date().toISOString(),
+          error: response.message || 'Unknown error',
+          response: response
+        });
       }
     } catch (error: any) {
       console.error('Error fetching stories:', error);
-      // Don't show alert for this, just log the error
       setStories([]);
+      
+      // Update debug info with error
+      setDebugInfo({
+        ...debugInfo,
+        lastFetch: new Date().toISOString(),
+        error: error.message,
+        errorDetails: error
+      });
     } finally {
       setLoadingStories(false);
+      setRefreshing(false);
     }
   }, [token]);
+
+  const runDebugCheck = async () => {
+    if (!token) {
+      Alert.alert('Error', 'No token available');
+      return;
+    }
+
+    try {
+      console.log('🔍 Running comprehensive debug check...');
+      const debugResults = await apiService.debugUserStories(token);
+      
+      setDebugInfo({
+        ...debugInfo,
+        debugResults,
+        lastDebugCheck: new Date().toISOString()
+      });
+      
+      setDebugModalVisible(true);
+    } catch (error: any) {
+      Alert.alert('Debug Error', error.message);
+    }
+  };
 
   const handleGenerateStory = async () => {
     if (!storyPrompt.trim()) {
@@ -147,11 +198,9 @@ export default function HomeScreen() {
     try {
       console.log('📝 Updating system prompt...');
       
-      // Update via API service
       const response = await apiService.updateSystemPrompt(newPrompt.trim(), token);
       
       if (response.success) {
-        // Also update local user profile
         await updateUserProfile({ storyPrompt: newPrompt.trim() });
         
         setPromptModalVisible(false);
@@ -203,7 +252,117 @@ export default function HomeScreen() {
       <BookOpen size={48} color="#DDA0DD" />
       <Text style={styles.emptyStateText}>No stories yet!</Text>
       <Text style={styles.emptyStateSubtext}>Create your first magical story</Text>
+      
+      {/* Debug button when no stories */}
+      <TouchableOpacity 
+        style={styles.debugButton}
+        onPress={runDebugCheck}
+      >
+        <AlertCircle size={16} color="#FF69B4" />
+        <Text style={styles.debugButtonText}>Debug Stories</Text>
+      </TouchableOpacity>
     </View>
+  );
+
+  const renderDebugModal = () => (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={debugModalVisible}
+      onRequestClose={() => setDebugModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.debugModalContent}>
+          <View style={styles.debugHeader}>
+            <Text style={styles.modalTitle}>Story Debug Information</Text>
+            <TouchableOpacity
+              onPress={() => setDebugModalVisible(false)}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeButtonText}>×</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.debugScrollView}>
+            {debugInfo && (
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Last Fetch Results</Text>
+                <Text style={styles.debugText}>
+                  Time: {debugInfo.lastFetch || 'Never'}
+                </Text>
+                <Text style={styles.debugText}>
+                  Stories Found: {debugInfo.storiesFound || 0}
+                </Text>
+                <Text style={styles.debugText}>
+                  Total Count: {debugInfo.totalCount || 0}
+                </Text>
+                <Text style={styles.debugText}>
+                  Method Used: {debugInfo.method || 'Unknown'}
+                </Text>
+                
+                {debugInfo.error && (
+                  <View style={styles.errorSection}>
+                    <Text style={styles.errorTitle}>Error:</Text>
+                    <Text style={styles.errorText}>{debugInfo.error}</Text>
+                  </View>
+                )}
+
+                {debugInfo.userInfo && (
+                  <View style={styles.debugSubSection}>
+                    <Text style={styles.debugSubTitle}>User Info:</Text>
+                    <Text style={styles.debugText}>
+                      Story IDs Array Length: {debugInfo.userInfo.story_ids_array_length || 0}
+                    </Text>
+                    <Text style={styles.debugText}>
+                      Last Story ID: {debugInfo.userInfo.last_story_id || 'None'}
+                    </Text>
+                    <Text style={styles.debugText}>
+                      Total Stories: {debugInfo.userInfo.total_stories || 0}
+                    </Text>
+                  </View>
+                )}
+
+                {debugInfo.debugResults && (
+                  <View style={styles.debugSubSection}>
+                    <Text style={styles.debugSubTitle}>Debug Check Results:</Text>
+                    <Text style={styles.debugText}>
+                      Token Valid: {debugInfo.debugResults.tokenValid ? '✅' : '❌'}
+                    </Text>
+                    <Text style={styles.debugText}>
+                      Story IDs Found: {debugInfo.debugResults.storyIds?.length || 0}
+                    </Text>
+                    {debugInfo.debugResults.storyIds?.length > 0 && (
+                      <Text style={styles.debugText}>
+                        Story IDs: {debugInfo.debugResults.storyIds.join(', ')}
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.refreshDebugButton}
+              onPress={runDebugCheck}
+            >
+              <RefreshCw size={16} color="white" />
+              <Text style={styles.refreshDebugButtonText}>Run Debug Check</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.refreshStoriesButton}
+              onPress={() => {
+                setRefreshing(true);
+                fetchUserStories();
+              }}
+            >
+              <RefreshCw size={16} color="#FF69B4" />
+              <Text style={styles.refreshStoriesButtonText}>Refresh Stories</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 
   return (
@@ -214,10 +373,20 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.greeting}>Hello! 👋</Text>
-          <Text style={styles.welcomeText}>
-            Ready to create magic for {user?.childName || 'your little one'}?
-          </Text>
+          <View style={styles.headerMain}>
+            <Text style={styles.greeting}>Hello! 👋</Text>
+            <Text style={styles.welcomeText}>
+              Ready to create magic for {user?.childName || 'your little one'}?
+            </Text>
+          </View>
+          
+          {/* Debug button in header */}
+          <TouchableOpacity
+            style={styles.headerDebugButton}
+            onPress={runDebugCheck}
+          >
+            <AlertCircle size={20} color="#FF69B4" />
+          </TouchableOpacity>
         </View>
 
         {/* Child Info Card */}
@@ -279,7 +448,18 @@ export default function HomeScreen() {
         <View style={styles.storiesSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Stories</Text>
-            {loadingStories && <ActivityIndicator size={20} color="#FF69B4" />}
+            <View style={styles.sectionActions}>
+              {loadingStories && <ActivityIndicator size={20} color="#FF69B4" />}
+              <TouchableOpacity 
+                onPress={() => {
+                  setRefreshing(true);
+                  fetchUserStories();
+                }}
+                style={styles.refreshButton}
+              >
+                <RefreshCw size={16} color="#FF69B4" />
+              </TouchableOpacity>
+            </View>
           </View>
           
           {stories.length > 0 ? (
@@ -289,6 +469,11 @@ export default function HomeScreen() {
               keyExtractor={(item) => item.story_id}
               scrollEnabled={false}
               showsVerticalScrollIndicator={false}
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchUserStories();
+              }}
             />
           ) : !loadingStories ? (
             renderEmptyStories()
@@ -393,11 +578,14 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Debug Modal */}
+      {renderDebugModal()}
     </LinearGradient>
   );
 }
 
-// Keep all the existing styles but add the new ones
+// Enhanced styles with debug elements
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -409,7 +597,18 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 30,
+  },
+  headerMain: {
+    flex: 1,
+  },
+  headerDebugButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
   greeting: {
     fontSize: 28,
@@ -527,6 +726,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito-Bold',
     color: '#FF69B4',
   },
+  sectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  refreshButton: {
+    padding: 4,
+  },
   storyCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 15,
@@ -614,6 +821,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Nunito-Regular',
     color: '#C8A2C8',
+    marginBottom: 20,
+  },
+  debugButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 105, 180, 0.3)',
+  },
+  debugButtonText: {
+    fontSize: 14,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#FF69B4',
   },
   viewAllButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
@@ -642,6 +866,113 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '100%',
     maxWidth: 400,
+  },
+  debugModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 0,
+    width: '95%',
+    maxHeight: '80%',
+  },
+  debugHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+  },
+  closeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    fontSize: 18,
+    color: '#666',
+  },
+  debugScrollView: {
+    padding: 20,
+  },
+  debugSection: {
+    marginBottom: 20,
+  },
+  debugSectionTitle: {
+    fontSize: 18,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
+    marginBottom: 12,
+  },
+  debugSubSection: {
+    marginTop: 12,
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: '#E5E5E5',
+  },
+  debugSubTitle: {
+    fontSize: 14,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#666',
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    fontFamily: 'Nunito-Regular',
+    color: '#333',
+    marginBottom: 4,
+  },
+  errorSection: {
+    backgroundColor: '#FFF5F5',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  errorTitle: {
+    fontSize: 14,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#E53E3E',
+    marginBottom: 4,
+  },
+  errorText: {
+    fontSize: 12,
+    fontFamily: 'Nunito-Regular',
+    color: '#E53E3E',
+  },
+  refreshDebugButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF69B4',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 12,
+    justifyContent: 'center',
+  },
+  refreshDebugButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'Nunito-SemiBold',
+  },
+  refreshStoriesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 105, 180, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FF69B4',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  refreshStoriesButtonText: {
+    color: '#FF69B4',
+    fontSize: 14,
+    fontFamily: 'Nunito-SemiBold',
   },
   modalTitle: {
     fontSize: 24,

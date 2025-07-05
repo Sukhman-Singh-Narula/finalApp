@@ -1,4 +1,4 @@
-// components/StoryCard.tsx - UPDATED WITHOUT REDUX
+// components/StoryCard.tsx - ENHANCED VERSION
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Colors } from '@/constants/Colors';
@@ -10,8 +10,9 @@ import {
   AlertCircle,
   CheckCircle,
   Loader,
+  Calendar,
   Music,
-  Image as ImageIcon
+  Zap
 } from 'lucide-react-native';
 
 interface StoryCardProps {
@@ -23,13 +24,13 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
   const getStatusIcon = () => {
     switch (story.status) {
       case 'processing':
-        return <Loader size={16} color={Colors.warning} />;
+        return <Loader size={16} color="#FFE66D" />;
       case 'completed':
-        return <CheckCircle size={16} color={Colors.success} />;
+        return <CheckCircle size={16} color="#4ECDC4" />;
       case 'failed':
-        return <AlertCircle size={16} color={Colors.error} />;
+        return <AlertCircle size={16} color="#FF6B6B" />;
       default:
-        return <CheckCircle size={16} color={Colors.success} />;
+        return <CheckCircle size={16} color="#4ECDC4" />;
     }
   };
 
@@ -49,18 +50,18 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
   const getStatusColor = () => {
     switch (story.status) {
       case 'processing':
-        return Colors.warning;
+        return '#FFE66D';
       case 'completed':
-        return Colors.success;
+        return '#4ECDC4';
       case 'failed':
-        return Colors.error;
+        return '#FF6B6B';
       default:
-        return Colors.success;
+        return '#4ECDC4';
     }
   };
 
   const formatDuration = (duration?: number) => {
-    if (!duration) return 'Unknown';
+    if (!duration || duration === 0) return 'Unknown duration';
 
     const minutes = Math.floor(duration / 60000);
     const seconds = Math.floor((duration % 60000) / 1000);
@@ -72,9 +73,9 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
     }
   };
 
-  const formatDistanceToNow = (dateString: string) => {
+  const formatDistanceToNow = (dateString: string | Date) => {
     try {
-      const date = new Date(dateString);
+      const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
       const now = new Date();
       const diffInMs = now.getTime() - date.getTime();
       const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
@@ -112,77 +113,82 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
       disabled={story.status === 'processing'}
     >
       <View style={styles.cardContent}>
-        {/* Thumbnail or placeholder */}
-        <View style={styles.thumbnailContainer}>
+        {/* Left side - Story icon/thumbnail placeholder */}
+        <View style={styles.iconContainer}>
           {story.thumbnail_url ? (
             <Image source={{ uri: story.thumbnail_url }} style={styles.thumbnail} />
           ) : (
-            <View style={styles.thumbnailPlaceholder}>
-              <BookOpen size={24} color={Colors.primary} />
+            <View style={[styles.iconPlaceholder, { backgroundColor: getStatusColor() + '20' }]}>
+              <BookOpen size={24} color={getStatusColor()} />
             </View>
           )}
 
-          {/* Status overlay */}
-          <View style={[styles.statusOverlay, { backgroundColor: getStatusColor() }]}>
+          {/* Status indicator */}
+          <View style={[styles.statusIndicator, { backgroundColor: getStatusColor() }]}>
             {getStatusIcon()}
           </View>
         </View>
 
-        {/* Story info */}
-        <View style={styles.storyInfo}>
-          <View style={styles.header}>
+        {/* Main content */}
+        <View style={styles.content}>
+          {/* Title and play button */}
+          <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>
-              {story.title}
+              {story.title || 'Untitled Story'}
             </Text>
-
+            
             {isInteractive && (
               <TouchableOpacity style={styles.playButton}>
-                <Play size={16} color={Colors.primary} />
+                <Play size={16} color="#FF69B4" fill="#FF69B4" />
               </TouchableOpacity>
             )}
           </View>
 
-          <Text style={styles.description} numberOfLines={3}>
-            {story.user_prompt}
+          {/* User prompt/description */}
+          <Text style={styles.description} numberOfLines={2}>
+            {story.user_prompt || 'No description available'}
           </Text>
 
-          {/* Story metadata */}
-          <View style={styles.metadata}>
-            <View style={styles.metadataRow}>
-              <View style={styles.statusContainer}>
-                {getStatusIcon()}
-                <Text style={[styles.statusText, { color: getStatusColor() }]}>
-                  {getStatusText()}
-                </Text>
-              </View>
-
-              {story.total_duration && story.total_duration > 0 && (
-                <View style={styles.durationContainer}>
-                  <Music size={12} color={Colors.textSecondary} />
-                  <Text style={styles.durationText}>
-                    {formatDuration(story.total_duration)}
-                  </Text>
-                </View>
-              )}
+          {/* Metadata row */}
+          <View style={styles.metadataRow}>
+            {/* Status */}
+            <View style={styles.metadataItem}>
+              {getStatusIcon()}
+              <Text style={[styles.metadataText, { color: getStatusColor() }]}>
+                {getStatusText()}
+              </Text>
             </View>
 
-            <View style={styles.metadataRow}>
-              <View style={styles.timeContainer}>
-                <Clock size={12} color={Colors.textSecondary} />
-                <Text style={styles.time}>
-                  {formatDistanceToNow(story.created_at)}
+            {/* Time created */}
+            <View style={styles.metadataItem}>
+              <Calendar size={12} color="#8B7D8B" />
+              <Text style={styles.metadataText}>
+                {formatDistanceToNow(story.created_at)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Additional info row */}
+          <View style={styles.metadataRow}>
+            {/* Duration */}
+            {story.total_duration && story.total_duration > 0 && (
+              <View style={styles.metadataItem}>
+                <Music size={12} color="#8B7D8B" />
+                <Text style={styles.metadataText}>
+                  {formatDuration(story.total_duration)}
                 </Text>
               </View>
+            )}
 
-              {hasScenes && (
-                <View style={styles.scenesContainer}>
-                  <ImageIcon size={12} color={Colors.textSecondary} />
-                  <Text style={styles.scenesText}>
-                    {story.scenes!.length} scene{story.scenes!.length !== 1 ? 's' : ''}
-                  </Text>
-                </View>
-              )}
-            </View>
+            {/* Scenes count */}
+            {story.total_scenes && story.total_scenes > 0 && (
+              <View style={styles.metadataItem}>
+                <Zap size={12} color="#8B7D8B" />
+                <Text style={styles.metadataText}>
+                  {story.total_scenes} scene{story.total_scenes !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </View>
@@ -193,6 +199,7 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
           <View style={styles.progressBar}>
             <View style={styles.progressFill} />
           </View>
+          <Text style={styles.progressText}>Generating your magical story...</Text>
         </View>
       )}
     </TouchableOpacity>
@@ -201,131 +208,108 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.background,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 16,
-    marginVertical: 8,
+    marginVertical: 6,
     marginHorizontal: 16,
-    shadowColor: Colors.shadow,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(221, 160, 221, 0.2)',
     overflow: 'hidden',
   },
   cardProcessing: {
-    borderColor: Colors.warning,
-    backgroundColor: '#FFFAF0',
+    borderColor: '#FFE66D',
+    backgroundColor: 'rgba(255, 230, 109, 0.05)',
   },
   cardFailed: {
-    borderColor: Colors.error,
-    backgroundColor: '#FFF5F5',
+    borderColor: '#FF6B6B',
+    backgroundColor: 'rgba(255, 107, 107, 0.05)',
   },
   cardContent: {
     flexDirection: 'row',
     padding: 16,
   },
-  thumbnailContainer: {
+  iconContainer: {
     position: 'relative',
     marginRight: 16,
+    alignItems: 'center',
   },
   thumbnail: {
-    width: 80,
-    height: 80,
+    width: 64,
+    height: 64,
     borderRadius: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F5F5F5',
   },
-  thumbnailPlaceholder: {
-    width: 80,
-    height: 80,
+  iconPlaceholder: {
+    width: 64,
+    height: 64,
     borderRadius: 12,
-    backgroundColor: Colors.secondary,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255, 105, 180, 0.1)',
   },
-  statusOverlay: {
+  statusIndicator: {
     position: 'absolute',
     top: -4,
     right: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: Colors.background,
+    borderColor: 'white',
   },
-  storyInfo: {
+  content: {
     flex: 1,
+    justifyContent: 'space-between',
   },
-  header: {
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
+    fontSize: 16,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
     flex: 1,
     marginRight: 8,
+    lineHeight: 20,
   },
   playButton: {
     padding: 4,
-    borderRadius: 6,
-    backgroundColor: Colors.secondary,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 105, 180, 0.1)',
   },
   description: {
     fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
+    lineHeight: 18,
     marginBottom: 12,
-  },
-  metadata: {
-    gap: 8,
   },
   metadataRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
+    flexWrap: 'wrap',
+    gap: 12,
   },
-  statusContainer: {
+  metadataItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  statusText: {
+  metadataText: {
     fontSize: 12,
-    fontWeight: '500',
-  },
-  durationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  durationText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  time: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  scenesContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  scenesText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
   },
   progressContainer: {
     paddingHorizontal: 16,
@@ -336,11 +320,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E5E5',
     borderRadius: 1.5,
     overflow: 'hidden',
+    marginBottom: 8,
   },
   progressFill: {
     height: '100%',
     width: '60%',
-    backgroundColor: Colors.warning,
+    backgroundColor: '#FFE66D',
     borderRadius: 1.5,
+  },
+  progressText: {
+    fontSize: 12,
+    fontFamily: 'Nunito-Regular',
+    color: '#FFE66D',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });

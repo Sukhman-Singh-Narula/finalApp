@@ -1,4 +1,4 @@
-// services/apiService.ts - UPDATED VERSION
+// services/apiService.ts - FIXED VERSION WITH BETTER ERROR HANDLING
 import { API_CONFIG } from '@/constants';
 
 interface ApiResponse<T = any> {
@@ -61,23 +61,25 @@ class ApiService {
             const response = await fetch(url, defaultOptions);
             console.log(`📊 Response Status: ${response.status} ${response.statusText}`);
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`❌ API Error Response:`, errorText);
-
-                let errorData;
-                try {
-                    errorData = JSON.parse(errorText);
-                } catch {
-                    errorData = { message: errorText };
-                }
-
-                throw new Error(errorData.message || `API Error: ${response.status} ${response.statusText}`);
+            let responseData;
+            const contentType = response.headers.get('content-type');
+            
+            if (contentType && contentType.includes('application/json')) {
+                responseData = await response.json();
+            } else {
+                const textData = await response.text();
+                console.error(`❌ Non-JSON response:`, textData);
+                throw new Error(`Server returned non-JSON response: ${textData}`);
             }
 
-            const data = await response.json();
-            console.log(`✅ API Success Response:`, data);
-            return data;
+            console.log(`✅ API Success Response:`, responseData);
+
+            if (!response.ok) {
+                const errorMessage = responseData.message || responseData.detail || `API Error: ${response.status} ${response.statusText}`;
+                throw new Error(errorMessage);
+            }
+
+            return responseData;
         } catch (error) {
             console.error(`❌ API Request failed: ${endpoint}`, error);
             throw error;
@@ -158,7 +160,7 @@ class ApiService {
         });
     }
 
-    // ===== STORY METHODS =====
+    // ===== STORY METHODS - FIXED =====
 
     async generateStory(prompt: string, token: string): Promise<ApiResponse> {
         console.log('🎬 Generating story with prompt:', prompt);
@@ -186,16 +188,78 @@ class ApiService {
         return response;
     }
 
+    // FIXED: Enhanced story fetching with better error handling
     async getUserStories(token: string, limit: number = 20, offset: number = 0): Promise<ApiResponse> {
         console.log('📚 Fetching user stories...');
+        console.log(`   Parameters: limit=${limit}, offset=${offset}`);
+        console.log(`   Token (first 20 chars): ${token.substring(0, 20)}...`);
         
-        const response = await this.makeRequest<ApiResponse>(
-            `/stories/user/${token}?limit=${limit}&offset=${offset}`, 
-            { method: 'GET' }
-        );
+        try {
+            const response = await this.makeRequest<ApiResponse>(
+                `/stories/user/${token}?limit=${limit}&offset=${offset}`, 
+                { method: 'GET' }
+            );
 
-        console.log('📚 User stories response:', response);
-        return response;
+            console.log('📚 User stories response:', response);
+            
+            // Enhanced logging for debugging
+            if (response.success) {
+                console.log(`✅ Stories fetch successful:`);
+                console.log(`   Total stories: ${response.total_count || 0}`);
+                console.log(`   Stories returned: ${response.stories?.length || 0}`);
+                console.log(`   Method used: ${response.summary?.method_used || 'unknown'}`);
+                console.log(`   User info:`, response.user_info);
+                
+                if (response.stories && response.stories.length > 0) {
+                    console.log(`   First story:`, response.stories[0]);
+                } else {
+                    console.log(`   No stories in response`);
+                    
+                    // Additional debugging info
+                    if (response.user_info) {
+                        console.log(`   User story_ids array length: ${response.user_info.story_ids_array_length || 0}`);
+                        console.log(`   User story_ids preview:`, response.user_info.story_ids_preview);
+                    }
+                }
+            } else {
+                console.log(`❌ Stories fetch failed: ${response.message}`);
+            }
+            
+            return response;
+        } catch (error: any) {
+            console.error('❌ Error in getUserStories:', error);
+            
+            // Return a structured error response
+            return {
+                success: false,
+                message: error.message || 'Failed to fetch stories',
+                stories: [],
+                total_count: 0,
+                error: error.message
+            };
+        }
+    }
+
+    // NEW: Get story IDs only (for debugging)
+    async getUserStoryIds(token: string): Promise<ApiResponse> {
+        console.log('📋 Fetching user story IDs...');
+        
+        try {
+            const response = await this.makeRequest<ApiResponse>(
+                `/stories/user/${token}/story-ids`, 
+                { method: 'GET' }
+            );
+
+            console.log('📋 User story IDs response:', response);
+            return response;
+        } catch (error: any) {
+            console.error('❌ Error fetching story IDs:', error);
+            return {
+                success: false,
+                message: error.message || 'Failed to fetch story IDs',
+                story_ids: []
+            };
+        }
     }
 
     async getStoryDetails(storyId: string): Promise<ApiResponse> {
@@ -239,9 +303,51 @@ class ApiService {
     // ===== UTILITY METHODS =====
 
     async healthCheck(): Promise<ApiResponse> {
-        return this.makeRequest('/health', {
+        console.log('🏥 Checking server health...');
+        const response = await this.makeRequest('/health', {
             method: 'GET',
         });
+        console.log('🏥 Health check response:', response);
+        return response;
+    }
+
+    // NEW: Debug endpoint to test token and stories
+    async debugUserStories(token: string): Promise<{
+        tokenValid: boolean;
+        userProfile: any;
+        storyIds: string[];
+        storiesResponse: any;
+    }> {
+        console.log('🔍 Running comprehensive stories debug...');
+        
+        try {
+            // 1. Verify token
+            const tokenCheck = await this.verifyToken(token);
+            console.log('🔍 Token verification:', tokenCheck);
+            
+            // 2. Get user profile
+            const profileCheck = await this.getUserProfile(token);
+            console.log('🔍 User profile:', profileCheck);
+            
+            // 3. Get story IDs
+            const idsCheck = await this.getUserStoryIds(token);
+            console.log('🔍 Story IDs:', idsCheck);
+            
+            // 4. Get full stories
+            const storiesCheck = await this.getUserStories(token, 10, 0);
+            console.log('🔍 Full stories:', storiesCheck);
+            
+            return {
+                tokenValid: tokenCheck.success && tokenCheck.valid,
+                userProfile: profileCheck.success ? profileCheck.profile : null,
+                storyIds: idsCheck.success ? idsCheck.story_ids : [],
+                storiesResponse: storiesCheck
+            };
+            
+        } catch (error) {
+            console.error('🔍 Debug error:', error);
+            throw error;
+        }
     }
 }
 
