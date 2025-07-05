@@ -1,204 +1,143 @@
-// services/authService.ts - FLEXIBLE VERSION (Development + Production)
-import { API_CONFIG, ApiResponse, UserProfile } from './apiConfig';
+// services/authService.ts - CLEAN VERSION WITHOUT FIREBASE
 
-// Firebase configuration with development mode support
-import { auth, isDevelopmentMode, developmentAuth } from '@/config/firebase';
-import {
-    signInWithEmailAndPassword as firebaseSignIn,
-    createUserWithEmailAndPassword as firebaseCreateUser,
-    signOut as firebaseSignOut
-} from 'firebase/auth';
+import { apiService } from './apiService';
 
-class AuthServiceClass {
-    private async makeRequest<T>(
-        endpoint: string,
-        options: RequestInit = {}
-    ): Promise<T> {
-        const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+interface AuthResponse {
+    success: boolean;
+    message: string;
+    user_id?: string;
+    profile?: any;
+}
 
-        const defaultHeaders = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-        };
+interface UserRegistration {
+    firebase_token: string;
+    parent: {
+        name: string;
+        email: string;
+        phone_number?: string;
+    };
+    child: {
+        name: string;
+        age: number;
+        interests: string[];
+    };
+    system_prompt?: string;
+}
 
+interface UserProfileUpdate {
+    firebase_token: string;
+    parent?: {
+        name?: string;
+        email?: string;
+        phone_number?: string;
+    };
+    child?: {
+        name?: string;
+        age?: number;
+        interests?: string[];
+    };
+    system_prompt?: string;
+}
+
+class AuthService {
+    async registerUser(request: UserRegistration): Promise<AuthResponse> {
         try {
-            console.log(`🌐 Making API request to: ${url}`);
-            console.log(`📝 Method: ${options.method || 'GET'}`);
-
-            const response = await fetch(url, {
-                ...options,
-                headers: {
-                    ...defaultHeaders,
-                    ...options.headers,
-                },
-                timeout: API_CONFIG.TIMEOUT,
-            });
-
-            console.log(`📊 Response status: ${response.status}`);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`❌ API Error: ${response.status} - ${errorText}`);
-                throw new Error(`API Error: ${response.status} - ${errorText}`);
-            }
-
-            const data = await response.json();
-            console.log(`✅ API Success:`, data);
-            return data;
-        } catch (error) {
-            console.error(`❌ Network Error:`, error);
-            throw error;
+            const response = await apiService.registerUser(request);
+            
+            return {
+                success: response.success || false,
+                message: response.message || 'Registration completed',
+                user_id: response.user_id,
+                profile: response.profile
+            };
+        } catch (error: any) {
+            return {
+                success: false,
+                message: error.message || 'Registration failed',
+            };
         }
     }
 
-    async registerUser(registrationData: {
-        firebase_token: string;
-        parent: {
-            name: string;
-            email: string;
-            phone_number?: string;
-        };
-        child: {
-            name: string;
-            age: number;
-            interests: string[];
-        };
-        system_prompt?: string;
-    }): Promise<ApiResponse<UserProfile>> {
-        return this.makeRequest(API_CONFIG.ENDPOINTS.REGISTER, {
-            method: 'POST',
-            body: JSON.stringify(registrationData),
-        });
-    }
-
-    async verifyToken(firebase_token: string): Promise<ApiResponse> {
-        return this.makeRequest(API_CONFIG.ENDPOINTS.VERIFY_TOKEN, {
-            method: 'POST',
-            body: JSON.stringify({ firebase_token }),
-        });
-    }
-
-    async getUserProfile(firebase_token: string): Promise<ApiResponse<UserProfile>> {
-        return this.makeRequest(`${API_CONFIG.ENDPOINTS.GET_PROFILE}/${firebase_token}`);
-    }
-
-    async updateUserProfile(updateData: {
-        firebase_token: string;
-        parent?: {
-            name: string;
-            email: string;
-            phone_number?: string;
-        };
-        child?: {
-            name: string;
-            age: number;
-            interests: string[];
-        };
-        system_prompt?: string;
-    }): Promise<ApiResponse<UserProfile>> {
-        return this.makeRequest(API_CONFIG.ENDPOINTS.UPDATE_PROFILE, {
-            method: 'PUT',
-            body: JSON.stringify(updateData),
-        });
-    }
-
-    async signInWithEmailAndPassword(email: string, password: string): Promise<{ user: { uid: string, email: string }, idToken: string }> {
+    async getUserProfile(firebaseToken: string): Promise<any> {
         try {
-            if (isDevelopmentMode) {
-                console.log('🧪 Development mode - Mock Firebase sign in:', email);
-
-                // Use development auth
-                const userCredential: any = await developmentAuth.signInWithEmailAndPassword(email, password);
-                const idToken = await userCredential.user.getIdToken();
-
+            const response = await apiService.getUserProfile(firebaseToken);
+            
+            if (response.success) {
                 return {
-                    user: {
-                        uid: userCredential.user.uid,
-                        email: userCredential.user.email,
-                    },
-                    idToken: idToken,
+                    success: true,
+                    user_id: response.user_id,
+                    profile: response.profile
                 };
             } else {
-                console.log('🔐 Production mode - Real Firebase sign in:', email);
-
-                // Use real Firebase authentication
-                const userCredential = await firebaseSignIn(auth, email, password);
-                const user = userCredential.user;
-
-                // Get the Firebase ID token
-                const idToken = await user.getIdToken();
-
-                console.log('✅ Firebase authentication successful');
-
-                return {
-                    user: {
-                        uid: user.uid,
-                        email: user.email || email,
-                    },
-                    idToken: idToken,
-                };
+                throw new Error(response.message || 'Failed to get profile');
             }
         } catch (error: any) {
-            console.error('❌ Firebase sign in error:', error);
-            throw new Error(error.message || 'Sign in failed');
+            throw new Error(error.message || 'Failed to get user profile');
         }
     }
 
-    async createUserWithEmailAndPassword(email: string, password: string): Promise<{ user: { uid: string, email: string }, idToken: string }> {
+    async updateUserProfile(request: UserProfileUpdate): Promise<AuthResponse> {
         try {
-            if (isDevelopmentMode) {
-                console.log('🧪 Development mode - Mock Firebase create user:', email);
-
-                // Use development auth
-                const userCredential: any = await developmentAuth.createUserWithEmailAndPassword(email, password);
-                const idToken = await userCredential.user.getIdToken();
-
-                return {
-                    user: {
-                        uid: userCredential.user.uid,
-                        email: userCredential.user.email,
-                    },
-                    idToken: idToken,
-                };
-            } else {
-                console.log('🔐 Production mode - Real Firebase create user:', email);
-
-                // Use real Firebase user creation
-                const userCredential = await firebaseCreateUser(auth, email, password);
-                const user = userCredential.user;
-
-                // Get the Firebase ID token
-                const idToken = await user.getIdToken();
-
-                console.log('✅ Firebase user creation successful');
-
-                return {
-                    user: {
-                        uid: user.uid,
-                        email: user.email || email,
-                    },
-                    idToken: idToken,
-                };
-            }
+            const response = await apiService.updateUserProfile(request, request.firebase_token);
+            
+            return {
+                success: response.success || false,
+                message: response.message || 'Profile updated successfully',
+                user_id: response.user_id,
+                profile: response.profile
+            };
         } catch (error: any) {
-            console.error('❌ Firebase user creation error:', error);
-            throw new Error(error.message || 'User creation failed');
+            return {
+                success: false,
+                message: error.message || 'Profile update failed',
+            };
         }
     }
 
-    async signOut(): Promise<void> {
+    async deleteUserProfile(firebaseToken: string): Promise<{ success: boolean; message: string; user_id?: string }> {
         try {
-            if (isDevelopmentMode) {
-                await developmentAuth.signOut();
-            } else {
-                await firebaseSignOut(auth);
-            }
-            console.log('✅ Sign out successful');
+            // Note: You'd need to add this endpoint to your API service if needed
+            // const response = await apiService.deleteUserProfile(firebaseToken);
+            
+            return {
+                success: true,
+                message: 'Profile deletion not implemented yet',
+            };
         } catch (error: any) {
-            console.error('❌ Sign out error:', error);
-            throw new Error(error.message || 'Sign out failed');
+            return {
+                success: false,
+                message: error.message || 'Failed to delete profile',
+            };
+        }
+    }
+
+    async verifyToken(firebaseToken: string): Promise<any> {
+        try {
+            const response = await apiService.verifyToken(firebaseToken);
+            
+            return {
+                success: response.success || false,
+                valid: response.valid || false,
+                user_info: response.user_info,
+                has_profile: response.has_profile || false,
+                profile: response.profile,
+                error: response.error
+            };
+        } catch (error: any) {
+            return {
+                success: false,
+                valid: false,
+                error: error.message || 'Token verification failed'
+            };
         }
     }
 }
 
-export const authService = new AuthServiceClass();
+export const authService = new AuthService();
+
+// Export types for use in components
+export type {
+    AuthResponse,
+    UserRegistration,
+    UserProfileUpdate,
+};

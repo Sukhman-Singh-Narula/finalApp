@@ -1,458 +1,640 @@
-// app/(tabs)/index.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, Modal, TextInput, Alert, RefreshControl } from 'react-native';
-import { router } from 'expo-router';
-import { useAppSelector, useAppDispatch } from '@/hooks';
 import {
-  generateStoryAsync,
-  loadUserStories,
-  setCurrentStory,
-  setCurrentServerStory,
-  clearError,
-  refreshStories
-} from '@/store/slices/storySlice';
-import CustomButton from '@/components/CustomButton';
-import StoryCard from '@/components/StoryCard';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import { Colors } from '@/constants/Colors';
-import { Plus, Sparkles, X, RefreshCw } from 'lucide-react-native';
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Modal,
+  TextInput,
+  Alert,
+  FlatList,
+  Image,
+  ActivityIndicator
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BookOpen, Wand as Wand2, Settings, Sparkles, Heart, Play, Clock } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiService, type Story } from '@/services/apiService';
 
 export default function HomeScreen() {
-  const dispatch = useAppDispatch();
-  const { user, firebase_token } = useAppSelector((state) => state.auth);
-  const { stories, isGenerating, generationProgress, error, isLoadingStories } = useAppSelector((state) => state.stories);
+  const { user, token, updateUserProfile } = useAuth();
+  const router = useRouter();
 
-  const [showPromptModal, setShowPromptModal] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState(user?.defaultSystemPrompt || '');
-  const [refreshing, setRefreshing] = useState(false);
+  const [promptModalVisible, setPromptModalVisible] = useState(false);
+  const [storyModalVisible, setStoryModalVisible] = useState(false);
+  const [newPrompt, setNewPrompt] = useState('');
+  const [storyPrompt, setStoryPrompt] = useState('');
+  const [stories, setStories] = useState<Story[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [loadingStories, setLoadingStories] = useState(false);
 
-  const recentStories = stories.slice(0, 5);
-
-  // Load stories when component mounts
   useEffect(() => {
-    if (firebase_token) {
-      dispatch(loadUserStories(firebase_token));
+    if (user && token) {
+      fetchUserStories();
     }
-  }, [firebase_token, dispatch]);
+  }, [user, token]);
 
-  // Update system prompt when user data changes
-  useEffect(() => {
-    if (user?.defaultSystemPrompt) {
-      setSystemPrompt(user.defaultSystemPrompt);
+  const fetchUserStories = async () => {
+    if (!token) return;
+    
+    try {
+      setLoadingStories(true);
+      const response = await apiService.getUserStories(token, 5, 0);
+      
+      if (response.success && response.stories) {
+        setStories(response.stories);
+      }
+    } catch (error: any) {
+      console.error('Error fetching stories:', error);
+    } finally {
+      setLoadingStories(false);
     }
-  }, [user?.defaultSystemPrompt]);
+  };
 
   const handleGenerateStory = async () => {
-    if (!customPrompt.trim()) {
-      Alert.alert('Story Prompt Required', 'Please enter what kind of story you\'d like to create!');
+    if (!storyPrompt.trim()) {
+      Alert.alert('Error', 'Please enter a story prompt');
       return;
     }
 
-    if (!firebase_token) {
-      Alert.alert('Authentication Error', 'Please log in again to create stories.');
+    if (!token) {
+      Alert.alert('Error', 'Please sign in to generate stories');
       return;
     }
-
-    setShowPromptModal(false);
 
     try {
+      setIsGenerating(true);
       console.log('🎬 Starting story generation...');
-      await dispatch(generateStoryAsync({
-        firebase_token,
-        prompt: customPrompt
-      })).unwrap();
+      
+      const result = await apiService.generateStory(storyPrompt.trim(), token);
+      setStoryModalVisible(false);
+      setStoryPrompt('');
 
-      setCustomPrompt('');
-      Alert.alert(
-        'Story Created!',
-        'Your magical story has been generated successfully!',
-        [
-          {
-            text: 'View Story',
-            onPress: () => {
-              // The latest story should be at the beginning of the stories array
-              const latestStory = stories[0];
-              if (latestStory) {
-                handleStoryPress(latestStory);
+      console.log('✅ Story generation started:', result);
+
+      if (result.success) {
+        Alert.alert(
+          '✨ Story Generation Started!',
+          `Your story "${result.story_id}" is being created! It will be ready in about 30-60 seconds.`,
+          [
+            { text: 'OK', style: 'default' },
+            {
+              text: 'View Progress',
+              onPress: () => {
+                router.push(`/story/${result.story_id}`);
               }
             }
-          },
-          { text: 'Create Another', style: 'cancel' }
-        ]
-      );
+          ]
+        );
+
+        // Refresh stories list
+        setTimeout(() => {
+          fetchUserStories();
+        }, 2000);
+      } else {
+        Alert.alert('Error', result.message || 'Failed to start story generation');
+      }
     } catch (error: any) {
-      console.error('Story generation error:', error);
+      console.error('❌ Story generation error:', error);
       Alert.alert(
         'Story Generation Failed',
-        error.message || 'Failed to generate story. Please try again.',
-        [{ text: 'OK' }]
+        error.message || 'Failed to generate story. Please check your internet connection and try again.',
+        [
+          { text: 'OK', style: 'default' },
+          { text: 'Retry', onPress: () => handleGenerateStory() }
+        ]
       );
-    }
-  };
-
-  const handleStoryPress = async (story: any) => {
-    try {
-      if (story.scenes && story.scenes.length > 0) {
-        // Story has server data with scenes, use it directly
-        dispatch(setCurrentServerStory({
-          story_id: story.id,
-          title: story.title,
-          user_prompt: story.description,
-          total_scenes: story.scenes.length,
-          total_duration: story.duration || 0,
-          scenes: story.scenes,
-          status: 'completed',
-          generated_at: story.generatedTime,
-        }));
-      } else {
-        // Story is just metadata, need to load full details
-        dispatch(setCurrentStory(story));
-      }
-
-      router.push('/story-player');
-    } catch (error) {
-      console.error('Error loading story:', error);
-      Alert.alert('Error', 'Failed to load story details.');
-    }
-  };
-
-  const handleRefresh = async () => {
-    if (!firebase_token) return;
-
-    setRefreshing(true);
-    try {
-      await dispatch(refreshStories(firebase_token)).unwrap();
-    } catch (error) {
-      console.warn('Refresh failed:', error);
     } finally {
-      setRefreshing(false);
+      setIsGenerating(false);
     }
   };
 
-  const onRefresh = async () => {
-    await handleRefresh();
+  const handleUpdateSystemPrompt = async () => {
+    if (!newPrompt.trim()) {
+      Alert.alert('Error', 'Please enter a story prompt');
+      return;
+    }
+
+    try {
+      await updateUserProfile({ storyPrompt: newPrompt });
+      setPromptModalVisible(false);
+      setNewPrompt('');
+      Alert.alert('Success', 'Story prompt updated!');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update prompt');
+    }
   };
+
+  const renderStoryItem = ({ item }: { item: Story }) => (
+    <TouchableOpacity
+      style={styles.storyCard}
+      onPress={() => router.push(`/story/${item.story_id}`)}
+    >
+      {item.thumbnail_url && (
+        <Image source={{ uri: item.thumbnail_url }} style={styles.storyThumbnail} />
+      )}
+      <View style={styles.storyInfo}>
+        <Text style={styles.storyTitle}>{item.title}</Text>
+        <Text style={styles.storyPrompt} numberOfLines={2}>{item.user_prompt}</Text>
+        <View style={styles.storyMeta}>
+          <View style={styles.metaItem}>
+            <BookOpen size={14} color="#DDA0DD" />
+            <Text style={styles.metaText}>{item.total_scenes} scenes</Text>
+          </View>
+          <View style={styles.metaItem}>
+            <Clock size={14} color="#DDA0DD" />
+            <Text style={styles.metaText}>{Math.round(item.total_duration / 60000)}m</Text>
+          </View>
+          <View style={[styles.statusBadge, 
+            item.status === 'completed' ? styles.completedBadge : 
+            item.status === 'processing' ? styles.processingBadge : styles.failedBadge
+          ]}>
+            <Text style={styles.statusText}>{item.status}</Text>
+          </View>
+        </View>
+      </View>
+      <Play size={24} color="#FF69B4" />
+    </TouchableOpacity>
+  );
+
+  const renderEmptyStories = () => (
+    <View style={styles.emptyState}>
+      <BookOpen size={48} color="#DDA0DD" />
+      <Text style={styles.emptyStateText}>No stories yet!</Text>
+      <Text style={styles.emptyStateSubtext}>Create your first magical story</Text>
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[Colors.primary]}
-            tintColor={Colors.primary}
-          />
-        }
-      >
+    <LinearGradient
+      colors={['#FFE4E1', '#E6E6FA', '#F0F8FF']}
+      style={styles.container}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.greeting}>
-            Hello, {user?.childName}! 👋
-          </Text>
-          <Text style={styles.subGreeting}>
-            Ready for a magical story adventure?
+          <Text style={styles.greeting}>Hello! 👋</Text>
+          <Text style={styles.welcomeText}>
+            Ready to create magic for {user?.childName || 'your little one'}?
           </Text>
         </View>
 
-        <View style={styles.generateSection}>
-          <CustomButton
-            title="Generate New Story"
-            onPress={() => setShowPromptModal(true)}
-            style={styles.generateButton}
-            disabled={isGenerating}
-          />
-          <View style={styles.generateIcon}>
-            <Sparkles size={24} color={Colors.primary} />
-          </View>
-        </View>
-
-        {/* Show generation progress */}
-        {isGenerating && (
-          <View style={styles.loadingSection}>
-            <LoadingSpinner message={generationProgress || "Creating your magical story..."} />
-            <Text style={styles.progressText}>
-              {generationProgress || "This may take 30-60 seconds..."}
-            </Text>
-          </View>
-        )}
-
-        {/* Show any errors */}
-        {error && (
-          <View style={styles.errorSection}>
-            <Text style={styles.errorText}>{error}</Text>
-            <CustomButton
-              title="Try Again"
-              onPress={() => dispatch(clearError())}
-              variant="outline"
-              size="small"
-            />
-          </View>
-        )}
-
-        <View style={styles.recentSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Stories</Text>
-            {stories.length > 0 && (
-              <CustomButton
-                title="Refresh"
-                onPress={handleRefresh}
-                variant="outline"
-                size="small"
-                style={styles.refreshButton}
-                disabled={refreshing || isLoadingStories}
-              />
-            )}
-          </View>
-
-          {isLoadingStories ? (
-            <View style={styles.loadingSection}>
-              <LoadingSpinner message="Loading your stories..." />
+        {/* Child Info Card */}
+        {user && (
+          <View style={styles.childCard}>
+            <View style={styles.childInfo}>
+              <Text style={styles.childName}>{user.childName}</Text>
+              <Text style={styles.childAge}>Age {user.childAge}</Text>
             </View>
-          ) : recentStories.length > 0 ? (
-            recentStories.map((story) => (
-              <StoryCard
-                key={story.id}
-                story={story}
-                onPress={() => handleStoryPress(story)}
-              />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>
-                No stories yet! Generate your first magical story above.
+            <View style={styles.interestsContainer}>
+              <Heart size={16} color="#FF69B4" />
+              <Text style={styles.interests}>
+                Loves: {user.childInterests?.join(', ') || 'Adventures'}
               </Text>
             </View>
-          )}
+          </View>
+        )}
+
+        {/* Action Buttons */}
+        <View style={styles.actionContainer}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setStoryModalVisible(true)}
+            disabled={isGenerating}
+          >
+            <LinearGradient
+              colors={isGenerating ? ['#C8A2C8', '#DDA0DD'] : ['#FF69B4', '#FF1493']}
+              style={styles.buttonGradient}
+            >
+              {isGenerating ? (
+                <>
+                  <ActivityIndicator size={28} color="white" />
+                  <Text style={styles.primaryButtonText}>Generating Magic...</Text>
+                </>
+              ) : (
+                <>
+                  <BookOpen size={28} color="white" />
+                  <Text style={styles.primaryButtonText}>Generate Story</Text>
+                  <Sparkles size={20} color="white" style={styles.sparkleIcon} />
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => {
+              setNewPrompt(user?.storyPrompt || '');
+              setPromptModalVisible(true);
+            }}
+          >
+            <Wand2 size={24} color="#DDA0DD" />
+            <Text style={styles.secondaryButtonText}>Change Story Settings</Text>
+            <Settings size={18} color="#DDA0DD" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Recent Stories */}
+        <View style={styles.storiesSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Stories</Text>
+            {loadingStories && <ActivityIndicator size={20} color="#FF69B4" />}
+          </View>
+          
+          {stories.length > 0 ? (
+            <FlatList
+              data={stories.slice(0, 5)}
+              renderItem={renderStoryItem}
+              keyExtractor={(item) => item.story_id}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : !loadingStories ? (
+            renderEmptyStories()
+          ) : null}
         </View>
       </ScrollView>
 
       {/* Story Generation Modal */}
       <Modal
-        visible={showPromptModal}
         animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowPromptModal(false)}
+        transparent={true}
+        visible={storyModalVisible}
+        onRequestClose={() => setStoryModalVisible(false)}
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Create Your Story</Text>
-            <CustomButton
-              title="✕"
-              onPress={() => setShowPromptModal(false)}
-              variant="outline"
-              size="small"
-              style={styles.closeButton}
-            />
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            <View style={styles.promptSection}>
-              <Text style={styles.promptLabel}>What story would you like to hear?</Text>
-              <Text style={styles.promptHelper}>
-                Be specific! For example: "A brave little mouse who goes on an adventure to find magical cheese"
-              </Text>
-              <TextInput
-                style={styles.promptInput}
-                value={customPrompt}
-                onChangeText={setCustomPrompt}
-                placeholder="Tell me about a brave little mouse who goes on an adventure..."
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </View>
-
-            <View style={styles.promptSection}>
-              <Text style={styles.promptLabel}>Story Instructions (Optional)</Text>
-              <Text style={styles.promptHelper}>
-                These instructions help customize the story style. Leave blank to use your default preferences.
-              </Text>
-              <TextInput
-                style={styles.promptInput}
-                value={systemPrompt}
-                onChangeText={setSystemPrompt}
-                placeholder="Any special instructions for the story..."
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-
-            <CustomButton
-              title="Generate Story"
-              onPress={handleGenerateStory}
-              style={styles.generateModalButton}
-              disabled={!customPrompt.trim() || isGenerating}
-            />
-
-            <Text style={styles.modalFooterText}>
-              ✨ Stories are generated with magical illustrations and narration!
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Create New Story</Text>
+            <Text style={styles.modalSubtitle}>
+              What adventure should we create for {user?.childName || 'your child'}?
             </Text>
-          </ScrollView>
-        </SafeAreaView>
+
+            <TextInput
+              style={styles.promptInput}
+              multiline
+              numberOfLines={4}
+              value={storyPrompt}
+              onChangeText={setStoryPrompt}
+              placeholder="Tell me about a brave princess who..."
+              placeholderTextColor="#C8A2C8"
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setStoryModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.saveButton, isGenerating && styles.disabledButton]}
+                onPress={handleGenerateStory}
+                disabled={isGenerating}
+              >
+                <Text style={styles.saveButtonText}>
+                  {isGenerating ? 'Creating...' : 'Generate Story'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
-    </SafeAreaView>
+
+      {/* System Prompt Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={promptModalVisible}
+        onRequestClose={() => setPromptModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Update Story Settings</Text>
+            <Text style={styles.modalSubtitle}>
+              Customize how stories are generated for {user?.childName || 'your child'}
+            </Text>
+
+            <TextInput
+              style={styles.promptInput}
+              multiline
+              numberOfLines={6}
+              value={newPrompt}
+              onChangeText={setNewPrompt}
+              placeholder="Enter your story generation settings..."
+              placeholderTextColor="#C8A2C8"
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setPromptModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleUpdateSystemPrompt}
+              >
+                <Text style={styles.saveButtonText}>Save Settings</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
-  scrollView: {
-    flex: 1,
+  scrollContainer: {
+    flexGrow: 1,
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   header: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 32,
-    backgroundColor: Colors.secondary,
+    marginBottom: 30,
   },
   greeting: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: Colors.text,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
     marginBottom: 8,
   },
-  subGreeting: {
-    fontSize: 16,
-    color: Colors.textSecondary,
+  welcomeText: {
+    fontSize: 18,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
     lineHeight: 24,
   },
-  generateSection: {
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-    position: 'relative',
+  childCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 30,
+    borderWidth: 1,
+    borderColor: 'rgba(221, 160, 221, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  generateButton: {
-    marginBottom: 0,
+  childInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
-  generateIcon: {
-    position: 'absolute',
-    right: 40,
-    top: 36,
+  childName: {
+    fontSize: 24,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
   },
-  loadingSection: {
+  childAge: {
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#DDA0DD',
+    backgroundColor: 'rgba(221, 160, 221, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  interestsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  interests: {
+    fontSize: 14,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
+    flex: 1,
+  },
+  actionContainer: {
+    gap: 16,
+    marginBottom: 30,
+  },
+  primaryButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#FF69B4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  buttonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 20,
     paddingHorizontal: 24,
+    gap: 12,
   },
-  progressText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 8,
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 20,
+    fontFamily: 'Nunito-Bold',
   },
-  errorSection: {
-    paddingHorizontal: 24,
+  sparkleIcon: {
+    marginLeft: 8,
+  },
+  secondaryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 20,
     paddingVertical: 16,
-    backgroundColor: '#FFF5F5',
-    marginHorizontal: 24,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.error,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(221, 160, 221, 0.5)',
   },
-  errorText: {
-    fontSize: 14,
-    color: Colors.error,
-    textAlign: 'center',
-    marginBottom: 12,
+  secondaryButtonText: {
+    color: '#DDA0DD',
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
   },
-  recentSection: {
-    paddingTop: 24,
-    paddingBottom: 40,
+  storiesSection: {
+    marginBottom: 20,
   },
   sectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: Colors.text,
-  },
-  refreshButton: {
-    minWidth: 80,
-  },
-  emptyState: {
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.text,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
   },
-  closeButton: {
-    minWidth: 40,
-    paddingHorizontal: 12,
+  storyCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 15,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(221, 160, 221, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  modalContent: {
+  storyThumbnail: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
+  },
+  storyInfo: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 24,
   },
-  promptSection: {
-    marginBottom: 24,
-  },
-  promptLabel: {
+  storyTitle: {
     fontSize: 16,
-    fontWeight: '500',
-    color: Colors.text,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
     marginBottom: 4,
   },
-  promptHelper: {
+  storyPrompt: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
     marginBottom: 8,
-    lineHeight: 20,
   },
-  promptInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: Colors.text,
-    backgroundColor: Colors.background,
-    minHeight: 80,
+  storyMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
-  generateModalButton: {
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaText: {
+    fontSize: 12,
+    fontFamily: 'Nunito-Regular',
+    color: '#DDA0DD',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 'auto',
+  },
+  completedBadge: {
+    backgroundColor: '#4ECDC4',
+  },
+  processingBadge: {
+    backgroundColor: '#FFE66D',
+  },
+  failedBadge: {
+    backgroundColor: '#FF6B6B',
+  },
+  statusText: {
+    fontSize: 10,
+    fontFamily: 'Nunito-SemiBold',
+    color: 'white',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontFamily: 'Nunito-Bold',
+    color: '#DDA0DD',
     marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    fontFamily: 'Nunito-Regular',
+    color: '#C8A2C8',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
+    textAlign: 'center',
     marginBottom: 20,
   },
-  modalFooterText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 40,
+  promptInput: {
+    borderWidth: 2,
+    borderColor: 'rgba(221, 160, 221, 0.3)',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    fontFamily: 'Nunito-Regular',
+    color: '#333',
+    textAlignVertical: 'top',
+    marginBottom: 20,
+    minHeight: 100,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: 'rgba(221, 160, 221, 0.2)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#DDA0DD',
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#FF69B4',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
   },
 });

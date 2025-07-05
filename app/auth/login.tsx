@@ -1,227 +1,195 @@
-// app/auth/login.tsx
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Alert } from 'react-native';
-import { Link, router } from 'expo-router';
-import { useAppDispatch, useAppSelector } from '@/hooks';
-import { loginWithEmailPassword, clearError } from '@/store/slices/authSlice';
-import CustomInput from '@/components/CustomInput';
-import CustomButton from '@/components/CustomButton';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import { Colors } from '@/constants/Colors';
-import { Heart } from 'lucide-react-native';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ArrowLeft, Mail, Lock } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
 
-export default function LoginScreen() {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-
-  const dispatch = useAppDispatch();
-  const { isLoading, error, isAuthenticated, firebase_token } = useAppSelector((state) => state.auth);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.replace('/(tabs)');
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    // Clear any previous errors when component mounts
-    if (error) {
-      dispatch(clearError());
-    }
-  }, []);
-
-  const validateForm = () => {
-    const newErrors: { email?: string; password?: string } = {};
-
-    if (!email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Email is invalid';
-    }
-
-    if (!password.trim()) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  const [loading, setLoading] = useState(false);
+  const { signIn } = useAuth();
+  const router = useRouter();
 
   const handleLogin = async () => {
-    if (!validateForm()) return;
+    if (!email || !password) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
 
-    dispatch(clearError());
-
+    setLoading(true);
     try {
-      const result = await dispatch(loginWithEmailPassword({ email, password })).unwrap();
-
-      if (result.hasProfile) {
-        // User has complete profile, redirect to main app
-        router.replace('/(tabs)');
-      } else {
-        // User exists but needs to complete registration
-        Alert.alert(
-          'Complete Your Profile',
-          'Please complete your profile to continue.',
-          [
-            {
-              text: 'Continue',
-              onPress: () => {
-                router.push({
-                  pathname: '/auth/register',
-                  params: {
-                    email,
-                    password,
-                    firebase_token: result.firebase_token,
-                    isExistingUser: 'true'
-                  },
-                });
-              },
-            },
-          ]
-        );
-      }
-    } catch (err: any) {
-      console.error('Login error:', err);
-      // Error is handled by Redux and will show in UI
+      await signIn(email, password);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      console.error('Login error:', error);
+      Alert.alert('Login Failed', error.message || 'Invalid email or password');
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <LoadingSpinner message="Signing you in..." />
-      </SafeAreaView>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Heart size={48} color={Colors.primary} />
-          <Text style={styles.title}>Story Magic</Text>
-          <Text style={styles.subtitle}>Welcome back! Let's create some magical stories.</Text>
-        </View>
+    <LinearGradient
+      colors={['#FFE4E1', '#E6E6FA']}
+      style={styles.container}
+    >
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <ArrowLeft size={24} color="#FF69B4" />
+          </TouchableOpacity>
 
-        <View style={styles.form}>
-          <CustomInput
-            label="Email"
-            value={email}
-            onChangeText={(text) => {
-              setEmail(text);
-              if (errors.email) {
-                setErrors(prev => ({ ...prev, email: undefined }));
-              }
-            }}
-            placeholder="Enter your email"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            error={errors.email}
-          />
+          <View style={styles.content}>
+            <Text style={styles.title}>Welcome Back!</Text>
+            <Text style={styles.subtitle}>Sign in to continue the magic</Text>
 
-          <CustomInput
-            label="Password"
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              if (errors.password) {
-                setErrors(prev => ({ ...prev, password: undefined }));
-              }
-            }}
-            placeholder="Enter your password"
-            secureTextEntry
-            error={errors.password}
-          />
+            <View style={styles.formContainer}>
+              <View style={styles.inputContainer}>
+                <Mail size={20} color="#DDA0DD" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor="#C8A2C8"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+              </View>
 
-          {error && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
+              <View style={styles.inputContainer}>
+                <Lock size={20} color="#DDA0DD" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor="#C8A2C8"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.loginButton, loading && styles.disabledButton]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                <Text style={styles.loginButtonText}>
+                  {loading ? 'Signing In...' : 'Sign In'}
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
-
-          <CustomButton
-            title="Sign In"
-            onPress={handleLogin}
-            style={styles.loginButton}
-            disabled={isLoading}
-          />
-
-          <View style={styles.linkContainer}>
-            <Text style={styles.linkText}>Don't have an account? </Text>
-            <Link href="/auth/signup" asChild>
-              <Text style={styles.link}>Sign Up</Text>
-            </Link>
           </View>
-        </View>
-      </View>
-    </SafeAreaView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+  },
+  backButton: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    zIndex: 1,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
     justifyContent: 'center',
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 48,
+    paddingHorizontal: 30,
+    paddingTop: 120,
   },
   title: {
     fontSize: 32,
-    fontWeight: 'bold',
-    color: Colors.text,
-    marginTop: 16,
+    fontFamily: 'Nunito-Bold',
+    color: '#FF69B4',
+    textAlign: 'center',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: Colors.textSecondary,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
     textAlign: 'center',
-    lineHeight: 24,
+    marginBottom: 40,
   },
-  form: {
-    width: '100%',
+  formContainer: {
+    gap: 20,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(221, 160, 221, 0.3)',
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 16,
+    fontSize: 16,
+    fontFamily: 'Nunito-Regular',
+    color: '#333',
   },
   loginButton: {
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  linkContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    backgroundColor: '#FF69B4',
+    borderRadius: 25,
+    paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    shadowColor: '#FF69B4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  linkText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
+  disabledButton: {
+    opacity: 0.6,
   },
-  link: {
-    fontSize: 16,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  errorContainer: {
-    backgroundColor: '#FFF5F5',
-    borderColor: Colors.error,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 16,
-  },
-  errorText: {
-    fontSize: 14,
-    color: Colors.error,
-    textAlign: 'center',
+  loginButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontFamily: 'Nunito-SemiBold',
   },
 });

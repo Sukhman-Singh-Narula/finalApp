@@ -1,49 +1,47 @@
 import { Tabs } from 'expo-router';
-import { useAppSelector } from '@/hooks';
-import { Colors } from '@/constants/Colors';
-import { Chrome as Home, Library, User } from 'lucide-react-native';
-import { Redirect } from 'expo-router';
+import { Chrome as Home, User, BookOpen } from 'lucide-react-native';
 
 export default function TabLayout() {
-  const { isAuthenticated } = useAppSelector((state) => state.auth);
-
-  if (!isAuthenticated) {
-    return <Redirect href="/auth/login" />;
-  }
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: Colors.background,
-          borderTopColor: Colors.border,
-          paddingTop: 5,
-          height: 60,
-        },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
-          marginBottom: 5,
-        },
         headerShown: false,
-      }}>
+        tabBarStyle: {
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          borderTopWidth: 0,
+          elevation: 10,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 10,
+          paddingTop: 10,
+          paddingBottom: 10,
+          height: 70,
+        },
+        tabBarActiveTintColor: '#FF69B4',
+        tabBarInactiveTintColor: '#C8A2C8',
+        tabBarLabelStyle: {
+          fontFamily: 'Nunito-SemiBold',
+          fontSize: 12,
+          marginTop: 4,
+        },
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ size, color }) => (
             <Home size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="library"
+        name="stories"
         options={{
-          title: 'Library',
-          tabBarIcon: ({ color, size }) => (
-            <Library size={size} color={color} />
+          title: 'Stories',
+          tabBarIcon: ({ size, color }) => (
+            <BookOpen size={size} color={color} />
           ),
         }}
       />
@@ -51,7 +49,7 @@ export default function TabLayout() {
         name="account"
         options={{
           title: 'Account',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ size, color }) => (
             <User size={size} color={color} />
           ),
         }}
