@@ -1,12 +1,10 @@
-// app/auth/register.tsx
+// app/auth/register.tsx - UPDATED TO USE AUTH CONTEXT
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useAppDispatch } from '@/hooks';
-import { registerUser } from '@/store/slices/authSlice';
+import { useAuth } from '@/contexts/AuthContext';
 import CustomInput from '@/components/CustomInput';
 import CustomButton from '@/components/CustomButton';
-import LoadingSpinner from '@/components/LoadingSpinner';
 import { Colors } from '@/constants/Colors';
 import { X } from 'lucide-react-native';
 
@@ -16,21 +14,19 @@ const interests = [
 ];
 
 export default function RegisterScreen() {
-  const { email, password, firebase_token, isExistingUser } = useLocalSearchParams<{
+  const { email, password } = useLocalSearchParams<{
     email: string;
     password: string;
-    firebase_token?: string;
-    isExistingUser?: string;
   }>();
 
-  const dispatch = useAppDispatch();
+  const { signUp } = useAuth();
 
   const [formData, setFormData] = useState({
     childName: '',
     childAge: '',
     parentName: '',
     parentPhone: '',
-    defaultSystemPrompt: '',
+    storyPrompt: '',
   });
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -52,10 +48,6 @@ export default function RegisterScreen() {
       newErrors.parentName = 'Parent name is required';
     }
 
-    if (!formData.parentPhone.trim()) {
-      newErrors.parentPhone = 'Phone number is required';
-    }
-
     if (selectedInterests.length === 0) {
       newErrors.interests = 'Please select at least one interest';
     }
@@ -73,13 +65,13 @@ export default function RegisterScreen() {
 
     // Clear interests error if they select one
     if (errors.interests && !selectedInterests.includes(interest)) {
-      setErrors(prev => ({ ...prev, interests: undefined }));
+      setErrors(prev => ({ ...prev, interests: '' }));
     }
   };
 
   const generateSystemPrompt = () => {
     const interests_str = selectedInterests.join(', ');
-    return formData.defaultSystemPrompt ||
+    return formData.storyPrompt ||
       `Create magical, educational stories suitable for ${formData.childName}, a ${formData.childAge}-year-old child who loves ${interests_str}. Use age-appropriate language with simple, engaging stories that build imagination and confidence.`;
   };
 
@@ -89,19 +81,22 @@ export default function RegisterScreen() {
     setIsLoading(true);
 
     try {
-      const registrationData = {
-        email: email!,
-        password: password!,
-        parentName: formData.parentName,
-        parentPhone: formData.parentPhone,
-        childName: formData.childName,
+      console.log('🔐 Starting registration process...');
+      
+      // Prepare user data for AuthContext signUp method
+      const userData = {
+        childName: formData.childName.trim(),
         childAge: parseInt(formData.childAge),
         childInterests: selectedInterests,
-        systemPrompt: generateSystemPrompt(),
+        parentName: formData.parentName.trim(),
+        parentPhone: formData.parentPhone.trim(),
+        storyPrompt: generateSystemPrompt(),
       };
 
-      console.log('🔐 Starting registration process...');
-      await dispatch(registerUser(registrationData)).unwrap();
+      console.log('📝 Registration data prepared:', userData);
+
+      // Use AuthContext signUp method which handles both Firebase auth and profile creation
+      await signUp(email!, password!, userData);
 
       // Success! Show success message and redirect
       Alert.alert(
@@ -118,11 +113,24 @@ export default function RegisterScreen() {
       console.error('Registration error:', error);
 
       // Show user-friendly error message
-      Alert.alert(
-        'Registration Failed',
-        error.message || 'Something went wrong. Please try again.',
-        [{ text: 'OK' }]
-      );
+      let errorMessage = 'Something went wrong. Please try again.';
+      
+      if (error.message) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('email') && msg.includes('exists')) {
+          errorMessage = 'An account with this email already exists. Please sign in instead.';
+        } else if (msg.includes('weak') && msg.includes('password')) {
+          errorMessage = 'Password is too weak. Please use a stronger password.';
+        } else if (msg.includes('invalid') && msg.includes('email')) {
+          errorMessage = 'Invalid email address. Please check and try again.';
+        } else if (msg.includes('network') || msg.includes('connection')) {
+          errorMessage = 'Network error. Please check your internet connection.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
+      Alert.alert('Registration Failed', errorMessage, [{ text: 'OK' }]);
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +139,9 @@ export default function RegisterScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <LoadingSpinner message="Creating your magical story account..." />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Creating your magical story account...</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -152,7 +162,7 @@ export default function RegisterScreen() {
               onChangeText={(text) => {
                 setFormData(prev => ({ ...prev, childName: text }));
                 if (errors.childName) {
-                  setErrors(prev => ({ ...prev, childName: undefined }));
+                  setErrors(prev => ({ ...prev, childName: '' }));
                 }
               }}
               placeholder="Enter your child's name"
@@ -165,7 +175,7 @@ export default function RegisterScreen() {
               onChangeText={(text) => {
                 setFormData(prev => ({ ...prev, childAge: text }));
                 if (errors.childAge) {
-                  setErrors(prev => ({ ...prev, childAge: undefined }));
+                  setErrors(prev => ({ ...prev, childAge: '' }));
                 }
               }}
               placeholder="Enter age (3-12)"
@@ -210,7 +220,7 @@ export default function RegisterScreen() {
                 onChangeText={(text) => {
                   setFormData(prev => ({ ...prev, parentName: text }));
                   if (errors.parentName) {
-                    setErrors(prev => ({ ...prev, parentName: undefined }));
+                    setErrors(prev => ({ ...prev, parentName: '' }));
                   }
                 }}
                 placeholder="Enter your name"
@@ -225,17 +235,13 @@ export default function RegisterScreen() {
               />
 
               <CustomInput
-                label="Phone Number"
+                label="Phone Number (Optional)"
                 value={formData.parentPhone}
                 onChangeText={(text) => {
                   setFormData(prev => ({ ...prev, parentPhone: text }));
-                  if (errors.parentPhone) {
-                    setErrors(prev => ({ ...prev, parentPhone: undefined }));
-                  }
                 }}
                 placeholder="Enter your phone number"
                 keyboardType="phone-pad"
-                error={errors.parentPhone}
               />
             </View>
 
@@ -244,8 +250,8 @@ export default function RegisterScreen() {
 
               <CustomInput
                 label="Custom Story Instructions"
-                value={formData.defaultSystemPrompt}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, defaultSystemPrompt: text }))}
+                value={formData.storyPrompt}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, storyPrompt: text }))}
                 placeholder="Any special instructions for story generation..."
                 multiline
                 numberOfLines={3}
@@ -258,7 +264,7 @@ export default function RegisterScreen() {
             </View>
 
             <CustomButton
-              title={isExistingUser === 'true' ? 'Complete Profile' : 'Create Account'}
+              title="Complete Registration"
               onPress={handleRegister}
               style={styles.registerButton}
               disabled={isLoading}
@@ -274,6 +280,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
   scrollView: {
     flex: 1,

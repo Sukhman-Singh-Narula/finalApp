@@ -1,3 +1,4 @@
+// app/auth/login.tsx - UPDATED VERSION
 import React, { useState } from 'react';
 import {
   View,
@@ -12,12 +13,13 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, Mail, Lock } from 'lucide-react-native';
+import { ArrowLeft, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
   const router = useRouter();
@@ -28,16 +30,56 @@ export default function Login() {
       return;
     }
 
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
     setLoading(true);
     try {
-      await signIn(email, password);
+      console.log('🔐 Attempting login for:', email);
+      await signIn(email.toLowerCase().trim(), password);
+      
+      console.log('✅ Login successful, navigating to main app');
       router.replace('/(tabs)');
     } catch (error: any) {
       console.error('Login error:', error);
-      Alert.alert('Login Failed', error.message || 'Invalid email or password');
+      
+      // Handle specific error messages
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.message) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('invalid') || msg.includes('password') || msg.includes('email')) {
+          errorMessage = 'Invalid email or password. Please check your credentials.';
+        } else if (msg.includes('network') || msg.includes('connection')) {
+          errorMessage = 'Network error. Please check your internet connection.';
+        } else if (msg.includes('disabled')) {
+          errorMessage = 'Your account has been disabled. Please contact support.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForgotPassword = () => {
+    if (!email) {
+      Alert.alert('Enter Email', 'Please enter your email address first, then tap "Forgot Password"');
+      return;
+    }
+
+    Alert.alert(
+      'Password Reset',
+      `We'll send a password reset link to ${email}. This feature will be available soon.`,
+      [{ text: 'OK' }]
+    );
   };
 
   return (
@@ -53,6 +95,7 @@ export default function Login() {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}
+            disabled={loading}
           >
             <ArrowLeft size={24} color="#FF69B4" />
           </TouchableOpacity>
@@ -72,7 +115,9 @@ export default function Login() {
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoCorrect={false}
                   editable={!loading}
+                  returnKeyType="next"
                 />
               </View>
 
@@ -84,10 +129,31 @@ export default function Login() {
                   placeholderTextColor="#C8A2C8"
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   editable={!loading}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
                 />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                >
+                  {showPassword ? (
+                    <EyeOff size={20} color="#DDA0DD" />
+                  ) : (
+                    <Eye size={20} color="#DDA0DD" />
+                  )}
+                </TouchableOpacity>
               </View>
+
+              <TouchableOpacity
+                style={styles.forgotPasswordButton}
+                onPress={handleForgotPassword}
+                disabled={loading}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.loginButton, loading && styles.disabledButton]}
@@ -98,6 +164,16 @@ export default function Login() {
                   {loading ? 'Signing In...' : 'Sign In'}
                 </Text>
               </TouchableOpacity>
+
+              <View style={styles.signupContainer}>
+                <Text style={styles.signupText}>Don't have an account? </Text>
+                <TouchableOpacity
+                  onPress={() => router.push('/auth/signup')}
+                  disabled={loading}
+                >
+                  <Text style={styles.signupLink}>Sign Up</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </ScrollView>
@@ -171,6 +247,18 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito-Regular',
     color: '#333',
   },
+  eyeButton: {
+    padding: 4,
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginTop: -10,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    fontFamily: 'Nunito-Regular',
+    color: '#DDA0DD',
+  },
   loginButton: {
     backgroundColor: '#FF69B4',
     borderRadius: 25,
@@ -191,5 +279,21 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontFamily: 'Nunito-SemiBold',
+  },
+  signupContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  signupText: {
+    fontSize: 16,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
+  },
+  signupLink: {
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#FF69B4',
   },
 });

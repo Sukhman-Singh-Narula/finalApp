@@ -1,3 +1,4 @@
+// app/story/[id].tsx - UPDATED VERSION
 import React, { useEffect, useState, useRef } from 'react';
 import {
     View,
@@ -102,25 +103,46 @@ export default function StoryPlayerScreen() {
             console.log('📖 Story response:', response);
 
             if (response.success && response.story) {
-                setStory(response.story);
+                // Format the story data to match our interface
+                const storyData: Story = {
+                    story_id: response.story.story_id || id,
+                    title: response.story.title || 'Unknown Story',
+                    user_prompt: response.story.user_prompt || '',
+                    created_at: response.story.generated_at || response.story.created_at || '',
+                    total_scenes: response.story.total_scenes || 0,
+                    total_duration: response.story.total_duration || 0,
+                    status: response.story.status || 'completed',
+                    thumbnail_url: response.story.thumbnail_url,
+                    scenes: response.story.scenes || [],
+                };
                 
-                // If story is still processing, poll for updates
-                if (response.story.status === 'processing') {
-                    startPolling();
-                }
+                setStory(storyData);
+                console.log('✅ Story loaded:', storyData.title, 'with', storyData.scenes?.length, 'scenes');
+                
             } else if (response.status === 'processing') {
                 // Story is still being generated
                 setStory({
                     story_id: id,
                     title: response.title || 'Generating...',
                     user_prompt: '',
+                    created_at: new Date().toISOString(),
                     status: 'processing',
                     total_scenes: 0,
                     total_duration: 0,
-                    created_at: new Date().toISOString(),
                     scenes: [],
                 });
                 startPolling();
+            } else if (response.status === 'failed') {
+                setStory({
+                    story_id: id,
+                    title: 'Generation Failed',
+                    user_prompt: '',
+                    created_at: new Date().toISOString(),
+                    status: 'failed',
+                    total_scenes: 0,
+                    total_duration: 0,
+                    scenes: [],
+                });
             } else {
                 Alert.alert('Error', response.message || 'Story not found');
             }
@@ -142,9 +164,21 @@ export default function StoryPlayerScreen() {
                 const response = await apiService.fetchStoryStatus(id!);
                 
                 if (response.success && response.story) {
-                    setStory(response.story);
+                    const storyData: Story = {
+                        story_id: response.story.story_id || id!,
+                        title: response.story.title || 'Unknown Story',
+                        user_prompt: response.story.user_prompt || '',
+                        created_at: response.story.generated_at || response.story.created_at || '',
+                        total_scenes: response.story.total_scenes || 0,
+                        total_duration: response.story.total_duration || 0,
+                        status: response.story.status || 'completed',
+                        thumbnail_url: response.story.thumbnail_url,
+                        scenes: response.story.scenes || [],
+                    };
                     
-                    if (response.story.status === 'completed') {
+                    setStory(storyData);
+                    
+                    if (storyData.status === 'completed') {
                         clearInterval(pollInterval.current!);
                     }
                 }
@@ -545,6 +579,7 @@ export default function StoryPlayerScreen() {
     );
 }
 
+// Keep all the existing styles from your original file
 const styles = StyleSheet.create({
     container: {
         flex: 1,

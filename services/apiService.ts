@@ -1,4 +1,4 @@
-// services/apiService.ts
+// services/apiService.ts - UPDATED VERSION
 import { API_CONFIG } from '@/constants';
 
 interface ApiResponse<T = any> {
@@ -30,19 +30,6 @@ interface StoryScene {
     duration: number;
 }
 
-interface GenerateStoryRequest {
-    firebase_token: string;
-    prompt: string;
-}
-
-interface StoryGenerationResponse {
-    success: boolean;
-    message: string;
-    story_id: string;
-    status: 'processing' | 'completed' | 'failed';
-    story?: Story;
-}
-
 class ApiService {
     private get baseUrl(): string {
         return API_CONFIG.BASE_URL;
@@ -72,7 +59,6 @@ class ApiService {
             }
 
             const response = await fetch(url, defaultOptions);
-
             console.log(`📊 Response Status: ${response.status} ${response.statusText}`);
 
             if (!response.ok) {
@@ -91,7 +77,6 @@ class ApiService {
 
             const data = await response.json();
             console.log(`✅ API Success Response:`, data);
-
             return data;
         } catch (error) {
             console.error(`❌ API Request failed: ${endpoint}`, error);
@@ -99,7 +84,19 @@ class ApiService {
         }
     }
 
-    // Authentication endpoints
+    // ===== AUTHENTICATION METHODS =====
+
+    async signUp(email: string, password: string, displayName?: string): Promise<ApiResponse> {
+        return this.makeRequest('/auth/signup', {
+            method: 'POST',
+            body: JSON.stringify({ 
+                email, 
+                password, 
+                display_name: displayName 
+            }),
+        });
+    }
+
     async signIn(email: string, password: string): Promise<ApiResponse> {
         return this.makeRequest('/auth/signin', {
             method: 'POST',
@@ -107,14 +104,20 @@ class ApiService {
         });
     }
 
-    async signUp(email: string, password: string): Promise<ApiResponse> {
-        return this.makeRequest('/auth/signup', {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
-        });
-    }
-
-    async registerUser(userData: any): Promise<ApiResponse> {
+    async registerUserProfile(userData: {
+        firebase_token: string;
+        parent: {
+            name: string;
+            email: string;
+            phone_number?: string;
+        };
+        child: {
+            name: string;
+            age: number;
+            interests: string[];
+        };
+        system_prompt?: string;
+    }): Promise<ApiResponse> {
         return this.makeRequest('/auth/register', {
             method: 'POST',
             body: JSON.stringify(userData),
@@ -131,26 +134,14 @@ class ApiService {
     async getUserProfile(token: string): Promise<ApiResponse> {
         return this.makeRequest(`/auth/profile/${token}`, {
             method: 'GET',
-        }, token);
+        });
     }
 
-    async updateUserProfile(updateData: any, token: string): Promise<ApiResponse> {
-        console.log('API: Updating user profile with data:', updateData);
-        
-        const response = await this.makeRequest('/auth/profile', {
+    async updateUserProfile(updateData: any): Promise<ApiResponse> {
+        return this.makeRequest('/auth/profile', {
             method: 'PUT',
             body: JSON.stringify(updateData),
-        }, token);
-        
-        console.log('API: Profile update response:', response);
-        return response;
-    }
-
-    async signOut(token: string): Promise<ApiResponse> {
-        return this.makeRequest('/auth/signout', {
-            method: 'POST',
-            body: JSON.stringify({ firebase_token: token }),
-        }, token);
+        });
     }
 
     async refreshToken(refreshToken: string): Promise<ApiResponse> {
@@ -160,27 +151,34 @@ class ApiService {
         });
     }
 
-    // Story Generation
-    async generateStory(prompt: string, token: string): Promise<StoryGenerationResponse> {
+    async signOut(token: string): Promise<ApiResponse> {
+        return this.makeRequest('/auth/signout', {
+            method: 'POST',
+            body: JSON.stringify({ firebase_token: token }),
+        });
+    }
+
+    // ===== STORY METHODS =====
+
+    async generateStory(prompt: string, token: string): Promise<ApiResponse> {
         console.log('🎬 Generating story with prompt:', prompt);
         
-        const response = await this.makeRequest<StoryGenerationResponse>('/stories/generate', {
+        const response = await this.makeRequest<ApiResponse>('/stories/generate', {
             method: 'POST',
             body: JSON.stringify({
                 firebase_token: token,
                 prompt: prompt,
             }),
-        }, token);
+        });
 
         console.log('📖 Story generation response:', response);
         return response;
     }
 
-    // Fetch Story Status/Details
-    async fetchStoryStatus(storyId: string): Promise<ApiResponse<Story>> {
+    async fetchStoryStatus(storyId: string): Promise<ApiResponse> {
         console.log('📡 Fetching story status for:', storyId);
         
-        const response = await this.makeRequest<ApiResponse<Story>>(`/stories/fetch/${storyId}`, {
+        const response = await this.makeRequest<ApiResponse>(`/stories/fetch/${storyId}`, {
             method: 'GET',
         });
 
@@ -188,23 +186,22 @@ class ApiService {
         return response;
     }
 
-    // Get User Stories
     async getUserStories(token: string, limit: number = 20, offset: number = 0): Promise<ApiResponse> {
         console.log('📚 Fetching user stories...');
         
-        const response = await this.makeRequest<ApiResponse>(`/stories/user/${token}?limit=${limit}&offset=${offset}`, {
-            method: 'GET',
-        }, token);
+        const response = await this.makeRequest<ApiResponse>(
+            `/stories/user/${token}?limit=${limit}&offset=${offset}`, 
+            { method: 'GET' }
+        );
 
         console.log('📚 User stories response:', response);
         return response;
     }
 
-    // Get Story Details
-    async getStoryDetails(storyId: string): Promise<ApiResponse<Story>> {
+    async getStoryDetails(storyId: string): Promise<ApiResponse> {
         console.log('📖 Fetching story details for:', storyId);
         
-        const response = await this.makeRequest<ApiResponse<Story>>(`/stories/details/${storyId}`, {
+        const response = await this.makeRequest<ApiResponse>(`/stories/details/${storyId}`, {
             method: 'GET',
         });
 
@@ -212,19 +209,18 @@ class ApiService {
         return response;
     }
 
-    // Delete User Story
     async deleteUserStory(storyId: string, token: string): Promise<ApiResponse> {
         console.log('🗑️ Deleting story:', storyId);
         
-        const response = await this.makeRequest<ApiResponse>(`/stories/user/${token}/story/${storyId}`, {
-            method: 'DELETE',
-        }, token);
+        const response = await this.makeRequest<ApiResponse>(
+            `/stories/user/${token}/story/${storyId}`, 
+            { method: 'DELETE' }
+        );
 
         console.log('🗑️ Delete story response:', response);
         return response;
     }
 
-    // Update System Prompt
     async updateSystemPrompt(systemPrompt: string, token: string): Promise<ApiResponse> {
         console.log('📝 Updating system prompt...');
         
@@ -234,30 +230,17 @@ class ApiService {
                 firebase_token: token,
                 system_prompt: systemPrompt,
             }),
-        }, token);
+        });
 
         console.log('📝 System prompt update response:', response);
         return response;
     }
 
-    // Health check
+    // ===== UTILITY METHODS =====
+
     async healthCheck(): Promise<ApiResponse> {
         return this.makeRequest('/health', {
             method: 'GET',
-        });
-    }
-
-    // Test endpoints for debugging
-    async testSimple(): Promise<ApiResponse> {
-        return this.makeRequest('/auth/test-simple', {
-            method: 'POST',
-        });
-    }
-
-    async testEcho(data: any): Promise<ApiResponse> {
-        return this.makeRequest('/auth/test-echo', {
-            method: 'POST',
-            body: JSON.stringify(data),
         });
     }
 }
@@ -268,7 +251,5 @@ export const apiService = new ApiService();
 export type {
     Story,
     StoryScene,
-    GenerateStoryRequest,
-    StoryGenerationResponse,
     ApiResponse,
 };

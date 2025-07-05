@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// app/(tabs)/index.tsx - UPDATED VERSION
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -36,22 +37,42 @@ export default function HomeScreen() {
     }
   }, [user, token]);
 
-  const fetchUserStories = async () => {
+  const fetchUserStories = useCallback(async () => {
     if (!token) return;
     
     try {
       setLoadingStories(true);
+      console.log('📚 Fetching recent stories for home screen...');
+      
       const response = await apiService.getUserStories(token, 5, 0);
       
       if (response.success && response.stories) {
-        setStories(response.stories);
+        const formattedStories = response.stories.map((story: any) => ({
+          story_id: story.story_id,
+          title: story.title,
+          user_prompt: story.user_prompt,
+          created_at: story.created_at,
+          total_scenes: story.total_scenes || 0,
+          total_duration: story.total_duration || 0,
+          status: story.status || 'completed',
+          thumbnail_url: story.thumbnail_url,
+          scenes: story.scenes_data || [],
+        }));
+        
+        setStories(formattedStories);
+        console.log('✅ Recent stories loaded:', formattedStories.length);
+      } else {
+        console.log('No stories found or request failed');
+        setStories([]);
       }
     } catch (error: any) {
       console.error('Error fetching stories:', error);
+      // Don't show alert for this, just log the error
+      setStories([]);
     } finally {
       setLoadingStories(false);
     }
-  };
+  }, [token]);
 
   const handleGenerateStory = async () => {
     if (!storyPrompt.trim()) {
@@ -69,12 +90,13 @@ export default function HomeScreen() {
       console.log('🎬 Starting story generation...');
       
       const result = await apiService.generateStory(storyPrompt.trim(), token);
+      
       setStoryModalVisible(false);
       setStoryPrompt('');
 
-      console.log('✅ Story generation started:', result);
+      console.log('✅ Story generation response:', result);
 
-      if (result.success) {
+      if (result.success && result.story_id) {
         Alert.alert(
           '✨ Story Generation Started!',
           `Your story "${result.story_id}" is being created! It will be ready in about 30-60 seconds.`,
@@ -89,7 +111,7 @@ export default function HomeScreen() {
           ]
         );
 
-        // Refresh stories list
+        // Refresh stories list after a short delay
         setTimeout(() => {
           fetchUserStories();
         }, 2000);
@@ -117,13 +139,30 @@ export default function HomeScreen() {
       return;
     }
 
+    if (!token) {
+      Alert.alert('Error', 'Please sign in to update settings');
+      return;
+    }
+
     try {
-      await updateUserProfile({ storyPrompt: newPrompt });
-      setPromptModalVisible(false);
-      setNewPrompt('');
-      Alert.alert('Success', 'Story prompt updated!');
+      console.log('📝 Updating system prompt...');
+      
+      // Update via API service
+      const response = await apiService.updateSystemPrompt(newPrompt.trim(), token);
+      
+      if (response.success) {
+        // Also update local user profile
+        await updateUserProfile({ storyPrompt: newPrompt.trim() });
+        
+        setPromptModalVisible(false);
+        setNewPrompt('');
+        Alert.alert('Success', 'Story settings updated!');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update settings');
+      }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update prompt');
+      console.error('❌ Update system prompt error:', error);
+      Alert.alert('Error', error.message || 'Failed to update settings');
     }
   };
 
@@ -254,6 +293,15 @@ export default function HomeScreen() {
           ) : !loadingStories ? (
             renderEmptyStories()
           ) : null}
+          
+          {stories.length > 0 && (
+            <TouchableOpacity
+              style={styles.viewAllButton}
+              onPress={() => router.push('/(tabs)/stories')}
+            >
+              <Text style={styles.viewAllText}>View All Stories</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -349,6 +397,7 @@ export default function HomeScreen() {
   );
 }
 
+// Keep all the existing styles but add the new ones
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -565,6 +614,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Nunito-Regular',
     color: '#C8A2C8',
+  },
+  viewAllButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 15,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(221, 160, 221, 0.3)',
+  },
+  viewAllText: {
+    color: '#FF69B4',
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
   },
   modalOverlay: {
     flex: 1,

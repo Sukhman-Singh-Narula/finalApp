@@ -1,8 +1,8 @@
+// app/(tabs)/account.tsx - UPDATED VERSION
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
-import { useAppSelector, useAppDispatch } from '@/hooks';
-import { updateUser, logout } from '@/store/slices/authSlice';
+import { useAuth } from '@/contexts/AuthContext';
 import CustomInput from '@/components/CustomInput';
 import CustomButton from '@/components/CustomButton';
 import { Colors } from '@/constants/Colors';
@@ -14,8 +14,7 @@ const interests = [
 ];
 
 export default function AccountScreen() {
-  const dispatch = useAppDispatch();
-  const { user } = useAppSelector((state) => state.auth);
+  const { user, signOut, updateUserProfile } = useAuth();
   
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
@@ -23,20 +22,35 @@ export default function AccountScreen() {
     childAge: user?.childAge?.toString() || '',
     parentName: user?.parentName || '',
     parentPhone: user?.parentPhone || '',
-    defaultSystemPrompt: user?.defaultSystemPrompt || '',
+    storyPrompt: user?.storyPrompt || '',
   });
   const [selectedInterests, setSelectedInterests] = useState<string[]>(user?.childInterests || []);
+  const [updating, setUpdating] = useState(false);
 
-  const handleSave = () => {
-    const updatedData = {
-      ...formData,
-      childAge: parseInt(formData.childAge),
-      childInterests: selectedInterests,
-    };
+  const handleSave = async () => {
+    try {
+      setUpdating(true);
+      
+      const updatedData = {
+        childName: formData.childName.trim(),
+        childAge: parseInt(formData.childAge) || 0,
+        parentName: formData.parentName.trim(),
+        parentPhone: formData.parentPhone.trim(),
+        childInterests: selectedInterests,
+        storyPrompt: formData.storyPrompt.trim(),
+      };
 
-    dispatch(updateUser(updatedData));
-    setIsEditing(false);
-    Alert.alert('Success', 'Your information has been updated successfully!');
+      console.log('💾 Updating user profile:', updatedData);
+      
+      await updateUserProfile(updatedData);
+      setIsEditing(false);
+      Alert.alert('Success', 'Your information has been updated successfully!');
+    } catch (error: any) {
+      console.error('Profile update error:', error);
+      Alert.alert('Error', error.message || 'Failed to update profile');
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const handleCancel = () => {
@@ -45,7 +59,7 @@ export default function AccountScreen() {
       childAge: user?.childAge?.toString() || '',
       parentName: user?.parentName || '',
       parentPhone: user?.parentPhone || '',
-      defaultSystemPrompt: user?.defaultSystemPrompt || '',
+      storyPrompt: user?.storyPrompt || '',
     });
     setSelectedInterests(user?.childInterests || []);
     setIsEditing(false);
@@ -60,9 +74,13 @@ export default function AccountScreen() {
         {
           text: 'Sign Out',
           style: 'destructive',
-          onPress: () => {
-            dispatch(logout());
-            router.replace('/auth/login');
+          onPress: async () => {
+            try {
+              await signOut();
+              router.replace('/auth');
+            } catch (error) {
+              console.error('Logout error:', error);
+            }
           },
         },
       ]
@@ -75,6 +93,32 @@ export default function AccountScreen() {
         ? prev.filter(i => i !== interest)
         : [...prev, interest]
     );
+  };
+
+  const validateForm = () => {
+    if (!formData.childName.trim()) {
+      Alert.alert('Error', 'Child name is required');
+      return false;
+    }
+    
+    if (!formData.parentName.trim()) {
+      Alert.alert('Error', 'Parent name is required');
+      return false;
+    }
+
+    const age = parseInt(formData.childAge);
+    if (isNaN(age) || age < 1 || age > 18) {
+      Alert.alert('Error', 'Please enter a valid age between 1 and 18');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSaveWithValidation = () => {
+    if (validateForm()) {
+      handleSave();
+    }
   };
 
   return (
@@ -93,16 +137,28 @@ export default function AccountScreen() {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Child Information</Text>
               {!isEditing ? (
-                <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.editButton}>
+                <TouchableOpacity 
+                  onPress={() => setIsEditing(true)} 
+                  style={styles.editButton}
+                  disabled={updating}
+                >
                   <Edit3 size={20} color={Colors.primary} />
                   <Text style={styles.editButtonText}>Edit</Text>
                 </TouchableOpacity>
               ) : (
                 <View style={styles.editActions}>
-                  <TouchableOpacity onPress={handleCancel} style={styles.cancelButton}>
+                  <TouchableOpacity 
+                    onPress={handleCancel} 
+                    style={styles.cancelButton}
+                    disabled={updating}
+                  >
                     <X size={18} color={Colors.textSecondary} />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
+                  <TouchableOpacity 
+                    onPress={handleSaveWithValidation} 
+                    style={styles.saveButton}
+                    disabled={updating}
+                  >
                     <Save size={18} color={Colors.primary} />
                   </TouchableOpacity>
                 </View>
@@ -113,7 +169,7 @@ export default function AccountScreen() {
               label="Child's Name"
               value={formData.childName}
               onChangeText={(text) => setFormData(prev => ({ ...prev, childName: text }))}
-              editable={isEditing}
+              editable={isEditing && !updating}
               style={!isEditing && styles.readOnlyInput}
             />
 
@@ -122,7 +178,7 @@ export default function AccountScreen() {
               value={formData.childAge}
               onChangeText={(text) => setFormData(prev => ({ ...prev, childAge: text }))}
               keyboardType="numeric"
-              editable={isEditing}
+              editable={isEditing && !updating}
               style={!isEditing && styles.readOnlyInput}
             />
 
@@ -137,8 +193,8 @@ export default function AccountScreen() {
                       selectedInterests.includes(interest) && styles.interestChipSelected,
                       !isEditing && styles.interestChipDisabled
                     ]}
-                    onPress={() => isEditing && toggleInterest(interest)}
-                    disabled={!isEditing}
+                    onPress={() => isEditing && !updating && toggleInterest(interest)}
+                    disabled={!isEditing || updating}
                   >
                     <Text style={[
                       styles.interestText,
@@ -159,13 +215,13 @@ export default function AccountScreen() {
               label="Parent Name"
               value={formData.parentName}
               onChangeText={(text) => setFormData(prev => ({ ...prev, parentName: text }))}
-              editable={isEditing}
+              editable={isEditing && !updating}
               style={!isEditing && styles.readOnlyInput}
             />
 
             <CustomInput
               label="Email"
-              value={user?.parentEmail || ''}
+              value={user?.email || ''}
               editable={false}
               style={styles.readOnlyInput}
             />
@@ -175,7 +231,7 @@ export default function AccountScreen() {
               value={formData.parentPhone}
               onChangeText={(text) => setFormData(prev => ({ ...prev, parentPhone: text }))}
               keyboardType="phone-pad"
-              editable={isEditing}
+              editable={isEditing && !updating}
               style={!isEditing && styles.readOnlyInput}
             />
           </View>
@@ -184,23 +240,57 @@ export default function AccountScreen() {
             <Text style={styles.sectionTitle}>Story Preferences</Text>
             
             <CustomInput
-              label="Default Story Instructions"
-              value={formData.defaultSystemPrompt}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, defaultSystemPrompt: text }))}
+              label="Custom Story Instructions"
+              value={formData.storyPrompt}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, storyPrompt: text }))}
               multiline
-              numberOfLines={3}
-              editable={isEditing}
+              numberOfLines={4}
+              editable={isEditing && !updating}
               style={[styles.textArea, !isEditing && styles.readOnlyInput]}
+              placeholder="Enter custom instructions for story generation..."
             />
+            
+            {!isEditing && (
+              <Text style={styles.helperText}>
+                These instructions help customize stories for {user?.childName || 'your child'}
+              </Text>
+            )}
           </View>
 
           <View style={styles.actions}>
+            {isEditing && (
+              <CustomButton
+                title={updating ? "Saving..." : "Save Changes"}
+                onPress={handleSaveWithValidation}
+                disabled={updating}
+                style={styles.saveChangesButton}
+              />
+            )}
+            
             <CustomButton
               title="Sign Out"
               onPress={handleLogout}
               variant="outline"
               style={styles.logoutButton}
+              disabled={updating}
             />
+          </View>
+
+          {/* Account Info Section */}
+          <View style={styles.accountInfoSection}>
+            <Text style={styles.sectionTitle}>Account Information</Text>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Member since:</Text>
+              <Text style={styles.infoValue}>
+                {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Last updated:</Text>
+              <Text style={styles.infoValue}>
+                {user?.updatedAt ? new Date(user.updatedAt).toLocaleDateString() : 'Unknown'}
+              </Text>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -324,13 +414,44 @@ const styles = StyleSheet.create({
     color: Colors.background,
   },
   textArea: {
-    height: 80,
+    height: 100,
     textAlignVertical: 'top',
+  },
+  helperText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+    marginTop: 8,
   },
   actions: {
     marginTop: 32,
+    gap: 16,
+  },
+  saveChangesButton: {
+    backgroundColor: Colors.primary,
   },
   logoutButton: {
     borderColor: Colors.error,
+  },
+  accountInfoSection: {
+    marginTop: 32,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  infoLabel: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: Colors.text,
+    fontWeight: '500',
   },
 });

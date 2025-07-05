@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+// app/(tabs)/stories.tsx - UPDATED VERSION
+import React, { useEffect, useState, useCallback } from 'react';
 import {
     View,
     Text,
@@ -46,7 +47,7 @@ export default function StoriesListScreen() {
         }
     }, [token]);
 
-    const fetchStories = async (reset: boolean = false) => {
+    const fetchStories = useCallback(async (reset: boolean = false) => {
         if (!token) return;
 
         try {
@@ -58,38 +59,62 @@ export default function StoriesListScreen() {
             }
 
             const currentOffset = reset ? 0 : offset;
+            console.log('📚 Fetching stories with offset:', currentOffset);
+            
             const response = await apiService.getUserStories(token, limit, currentOffset);
 
             if (response.success && response.stories) {
+                const newStories = response.stories.map((story: any) => ({
+                    story_id: story.story_id,
+                    title: story.title,
+                    user_prompt: story.user_prompt,
+                    created_at: story.created_at_formatted || story.created_at,
+                    total_scenes: story.total_scenes || 0,
+                    total_duration: story.total_duration || 0,
+                    status: story.status || 'completed',
+                    thumbnail_url: story.thumbnail_url,
+                    scenes: story.scenes_data || [],
+                }));
+
                 if (reset) {
-                    setStories(response.stories);
+                    setStories(newStories);
                 } else {
-                    setStories(prev => [...prev, ...response.stories]);
+                    setStories(prev => [...prev, ...newStories]);
                 }
                 
-                setHasMore(response.has_more || false);
+                setHasMore(response.pagination?.has_more || false);
                 setOffset(currentOffset + limit);
+                
+                console.log('✅ Stories fetched:', newStories.length);
+            } else {
+                console.warn('No stories in response or request failed');
+                if (reset) {
+                    setStories([]);
+                }
             }
         } catch (error: any) {
             console.error('Error fetching stories:', error);
-            Alert.alert('Error', 'Failed to fetch stories');
+            Alert.alert('Error', 'Failed to fetch stories: ' + error.message);
+            if (reset) {
+                setStories([]);
+            }
         } finally {
             setLoading(false);
             setLoadingMore(false);
         }
-    };
+    }, [token, offset, limit]);
 
-    const onRefresh = async () => {
+    const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await fetchStories(true);
         setRefreshing(false);
-    };
+    }, [fetchStories]);
 
-    const loadMore = () => {
+    const loadMore = useCallback(() => {
         if (!loadingMore && hasMore) {
             fetchStories(false);
         }
-    };
+    }, [loadingMore, hasMore, fetchStories]);
 
     const deleteStory = async (storyId: string) => {
         if (!token) return;
@@ -104,7 +129,9 @@ export default function StoriesListScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
+                            console.log('🗑️ Deleting story:', storyId);
                             const response = await apiService.deleteUserStory(storyId, token);
+                            
                             if (response.success) {
                                 setStories(prev => prev.filter(s => s.story_id !== storyId));
                                 Alert.alert('Success', 'Story deleted successfully');
@@ -112,6 +139,7 @@ export default function StoriesListScreen() {
                                 Alert.alert('Error', response.message || 'Failed to delete story');
                             }
                         } catch (error: any) {
+                            console.error('Delete error:', error);
                             Alert.alert('Error', error.message || 'Failed to delete story');
                         }
                     }
@@ -167,12 +195,18 @@ export default function StoriesListScreen() {
     };
 
     const formatDate = (date: string): string => {
-        const d = new Date(date);
-        return d.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
+        try {
+            const d = new Date(date);
+            if (isNaN(d.getTime())) return 'Unknown date';
+            
+            return d.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+            });
+        } catch {
+            return 'Unknown date';
+        }
     };
 
     const renderStoryItem = ({ item }: { item: Story }) => (
@@ -392,6 +426,7 @@ export default function StoriesListScreen() {
     );
 }
 
+// Styles remain the same as in your original file
 const styles = StyleSheet.create({
     container: {
         flex: 1,

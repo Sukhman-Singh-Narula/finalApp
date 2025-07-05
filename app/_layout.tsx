@@ -1,3 +1,4 @@
+// app/_layout.tsx - UPDATED WITH TOKEN MANAGEMENT
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -10,9 +11,21 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { useFrameworkReady } from '../hooks/useFrameworkReady';
 import { AuthProvider } from '../contexts/AuthContext';
+import { useTokenManager } from '../hooks/useTokenManager';
 
 // Prevent the splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
+
+// Token Management Component
+function TokenManager({ children }: { children: React.ReactNode }) {
+  useTokenManager({
+    checkOnAppForeground: true,
+    autoRefreshBeforeExpiry: true,
+    showExpirationAlert: true,
+  });
+
+  return <>{children}</>;
+}
 
 export default function RootLayout() {
   useFrameworkReady();
@@ -35,14 +48,16 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="auth" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="story" />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
+      <TokenManager>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="auth" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="story" />
+          <Stack.Screen name="+not-found" />
+        </Stack>
+        <StatusBar style="auto" />
+      </TokenManager>
     </AuthProvider>
   );
 }

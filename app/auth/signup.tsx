@@ -1,3 +1,4 @@
+// app/auth/signup.tsx - UPDATED VERSION
 import React, { useState } from 'react';
 import {
   View,
@@ -9,24 +10,25 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, Mail, Lock, User, Calendar, Heart, BookOpen, Camera } from 'lucide-react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { ArrowLeft, Mail, Lock, User, Calendar, Heart, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function SignUp() {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
+    confirmPassword: '',
     childName: '',
     childAge: '',
+    parentName: '',
     interests: '',
     storyPrompt: '',
   });
-  const [childImage, setChildImage] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signUp } = useAuth();
   const router = useRouter();
@@ -35,53 +37,94 @@ export default function SignUp() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please grant permission to access photos');
-      return;
+  const validateForm = () => {
+    const { email, password, confirmPassword, childName, childAge, parentName } = formData;
+
+    // Required fields
+    if (!email || !password || !childName || !childAge || !parentName) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return false;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
-    if (!result.canceled) {
-      setChildImage(result.assets[0].uri);
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return false;
     }
+
+    // Password validation
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters long');
+      return false;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return false;
+    }
+
+    // Age validation
+    const age = parseInt(childAge);
+    if (isNaN(age) || age < 1 || age > 18) {
+      Alert.alert('Error', 'Please enter a valid age between 1 and 18');
+      return false;
+    }
+
+    return true;
   };
 
   const handleSignUp = async () => {
-    if (!formData.email || !formData.password || !formData.childName || !formData.childAge) {
-      Alert.alert('Error', 'Please fill in all required fields');
-      return;
-    }
-
-    const age = parseInt(formData.childAge);
-    if (isNaN(age) || age < 1 || age > 18) {
-      Alert.alert('Error', 'Please enter a valid age between 1 and 18');
-      return;
-    }
+    if (!validateForm()) return;
 
     setLoading(true);
     try {
-      const interests = formData.interests.split(',').map(i => i.trim()).filter(i => i.length > 0);
+      console.log('📝 Starting signup process...');
+      
+      // Parse interests
+      const interests = formData.interests
+        .split(',')
+        .map(i => i.trim())
+        .filter(i => i.length > 0);
+
+      // Prepare user data
       const userData = {
-        childName: formData.childName,
-        childAge: age,
+        childName: formData.childName.trim(),
+        childAge: parseInt(formData.childAge),
         childInterests: interests,
-        storyPrompt: formData.storyPrompt || `Create magical stories for ${formData.childName}, a ${age} year old who loves ${interests.join(', ')}.`,
-        ...(childImage && { childImageUrl: childImage }),
+        parentName: formData.parentName.trim(),
+        storyPrompt: formData.storyPrompt.trim() || 
+          `Create magical stories for ${formData.childName}, a ${formData.childAge} year old who loves ${interests.join(', ')}.`,
       };
 
-      await signUp(formData.email, formData.password, userData);
+      console.log('📝 Signup data prepared:', userData);
+
+      await signUp(formData.email.toLowerCase().trim(), formData.password, userData);
+      
+      console.log('✅ Signup successful, navigating to main app');
       router.replace('/(tabs)');
     } catch (error: any) {
       console.error('Sign up error:', error);
-      Alert.alert('Sign Up Failed', error.message || 'Failed to create account');
+      
+      // Handle specific error messages
+      let errorMessage = 'Failed to create account. Please try again.';
+      
+      if (error.message) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('email') && msg.includes('exists')) {
+          errorMessage = 'An account with this email already exists. Please sign in instead.';
+        } else if (msg.includes('weak') || msg.includes('password')) {
+          errorMessage = 'Password is too weak. Please use a stronger password.';
+        } else if (msg.includes('invalid') && msg.includes('email')) {
+          errorMessage = 'Invalid email address. Please check and try again.';
+        } else if (msg.includes('network') || msg.includes('connection')) {
+          errorMessage = 'Network error. Please check your internet connection.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      Alert.alert('Sign Up Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -100,6 +143,7 @@ export default function SignUp() {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}
+            disabled={loading}
           >
             <ArrowLeft size={24} color="#FF69B4" />
           </TouchableOpacity>
@@ -109,6 +153,9 @@ export default function SignUp() {
             <Text style={styles.subtitle}>Tell us about your little one</Text>
 
             <View style={styles.formContainer}>
+              {/* Account Information */}
+              <Text style={styles.sectionTitle}>Account Information</Text>
+              
               <View style={styles.inputContainer}>
                 <Mail size={20} color="#DDA0DD" style={styles.inputIcon} />
                 <TextInput
@@ -119,6 +166,7 @@ export default function SignUp() {
                   onChangeText={(value) => handleInputChange('email', value)}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoCorrect={false}
                   editable={!loading}
                 />
               </View>
@@ -127,15 +175,68 @@ export default function SignUp() {
                 <Lock size={20} color="#DDA0DD" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Password"
+                  placeholder="Password (min 6 characters)"
                   placeholderTextColor="#C8A2C8"
                   value={formData.password}
                   onChangeText={(value) => handleInputChange('password', value)}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                >
+                  {showPassword ? (
+                    <EyeOff size={20} color="#DDA0DD" />
+                  ) : (
+                    <Eye size={20} color="#DDA0DD" />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Lock size={20} color="#DDA0DD" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Confirm Password"
+                  placeholderTextColor="#C8A2C8"
+                  value={formData.confirmPassword}
+                  onChangeText={(value) => handleInputChange('confirmPassword', value)}
+                  secureTextEntry={!showConfirmPassword}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  disabled={loading}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff size={20} color="#DDA0DD" />
+                  ) : (
+                    <Eye size={20} color="#DDA0DD" />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* Parent Information */}
+              <Text style={styles.sectionTitle}>Parent Information</Text>
+              
+              <View style={styles.inputContainer}>
+                <User size={20} color="#DDA0DD" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Your Name"
+                  placeholderTextColor="#C8A2C8"
+                  value={formData.parentName}
+                  onChangeText={(value) => handleInputChange('parentName', value)}
                   editable={!loading}
                 />
               </View>
 
+              {/* Child Information */}
+              <Text style={styles.sectionTitle}>Child Information</Text>
+              
               <View style={styles.inputContainer}>
                 <User size={20} color="#DDA0DD" style={styles.inputIcon} />
                 <TextInput
@@ -174,11 +275,17 @@ export default function SignUp() {
                 />
               </View>
 
-              <View style={styles.inputContainer}>
-                <BookOpen size={20} color="#DDA0DD" style={styles.inputIcon} />
+              <Text style={styles.helperText}>
+                Example: dinosaurs, princesses, space, animals
+              </Text>
+
+              {/* Optional Story Preferences */}
+              <Text style={styles.sectionTitle}>Story Preferences (Optional)</Text>
+              
+              <View style={styles.textAreaContainer}>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Story prompt (optional)"
+                  style={styles.textArea}
+                  placeholder="Custom story instructions (optional)"
                   placeholderTextColor="#C8A2C8"
                   value={formData.storyPrompt}
                   onChangeText={(value) => handleInputChange('storyPrompt', value)}
@@ -188,20 +295,9 @@ export default function SignUp() {
                 />
               </View>
 
-              <TouchableOpacity
-                style={styles.imagePickerContainer}
-                onPress={pickImage}
-                disabled={loading}
-              >
-                <Camera size={24} color="#DDA0DD" />
-                <Text style={styles.imagePickerText}>
-                  {childImage ? 'Change Photo' : 'Add Child\'s Photo (Optional)'}
-                </Text>
-              </TouchableOpacity>
-
-              {childImage && (
-                <Image source={{ uri: childImage }} style={styles.selectedImage} />
-              )}
+              <Text style={styles.helperText}>
+                Leave blank to use smart defaults based on your child's age and interests.
+              </Text>
 
               <TouchableOpacity
                 style={[styles.signUpButton, loading && styles.disabledButton]}
@@ -212,6 +308,16 @@ export default function SignUp() {
                   {loading ? 'Creating Account...' : 'Create Account'}
                 </Text>
               </TouchableOpacity>
+
+              <View style={styles.loginContainer}>
+                <Text style={styles.loginText}>Already have an account? </Text>
+                <TouchableOpacity
+                  onPress={() => router.push('/auth/login')}
+                  disabled={loading}
+                >
+                  <Text style={styles.loginLink}>Sign In</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </ScrollView>
@@ -265,6 +371,13 @@ const styles = StyleSheet.create({
   formContainer: {
     gap: 16,
   },
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#FF69B4',
+    marginTop: 10,
+    marginBottom: 5,
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -285,30 +398,30 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito-Regular',
     color: '#333',
   },
-  imagePickerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  eyeButton: {
+    padding: 4,
+  },
+  textAreaContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 15,
-    paddingVertical: 20,
-    borderWidth: 2,
-    borderColor: 'rgba(221, 160, 221, 0.5)',
-    borderStyle: 'dashed',
-    gap: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(221, 160, 221, 0.3)',
+    padding: 16,
   },
-  imagePickerText: {
+  textArea: {
     fontSize: 16,
     fontFamily: 'Nunito-Regular',
-    color: '#DDA0DD',
+    color: '#333',
+    textAlignVertical: 'top',
+    minHeight: 80,
   },
-  selectedImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignSelf: 'center',
-    borderWidth: 3,
-    borderColor: '#FFB6C1',
+  helperText: {
+    fontSize: 14,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
+    fontStyle: 'italic',
+    marginTop: -8,
+    marginBottom: 8,
   },
   signUpButton: {
     backgroundColor: '#FF69B4',
@@ -330,5 +443,21 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontFamily: 'Nunito-SemiBold',
+  },
+  loginContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  loginText: {
+    fontSize: 16,
+    fontFamily: 'Nunito-Regular',
+    color: '#8B7D8B',
+  },
+  loginLink: {
+    fontSize: 16,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#FF69B4',
   },
 });
