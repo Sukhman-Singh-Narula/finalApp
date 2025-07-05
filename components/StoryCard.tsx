@@ -1,9 +1,8 @@
-// components/StoryCard.tsx
+// components/StoryCard.tsx - UPDATED WITHOUT REDUX
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Colors } from '@/constants/Colors';
-import { Story } from '@/store/slices/storySlice';
-import { formatDistanceToNow } from '@/utils/dateUtils';
+import { Story } from '@/services/apiService';
 import {
   BookOpen,
   Clock,
@@ -73,6 +72,31 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
     }
   };
 
+  const formatDistanceToNow = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffInMs = now.getTime() - date.getTime();
+      const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+      const diffInHours = Math.floor(diffInMinutes / 60);
+      const diffInDays = Math.floor(diffInHours / 24);
+
+      if (diffInMinutes < 1) {
+        return 'Just now';
+      } else if (diffInMinutes < 60) {
+        return `${diffInMinutes}m ago`;
+      } else if (diffInHours < 24) {
+        return `${diffInHours}h ago`;
+      } else if (diffInDays < 7) {
+        return `${diffInDays}d ago`;
+      } else {
+        return date.toLocaleDateString();
+      }
+    } catch {
+      return 'Unknown time';
+    }
+  };
+
   const hasScenes = story.scenes && story.scenes.length > 0;
   const isInteractive = story.status === 'completed' || hasScenes;
 
@@ -90,8 +114,8 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
       <View style={styles.cardContent}>
         {/* Thumbnail or placeholder */}
         <View style={styles.thumbnailContainer}>
-          {story.thumbnail ? (
-            <Image source={{ uri: story.thumbnail }} style={styles.thumbnail} />
+          {story.thumbnail_url ? (
+            <Image source={{ uri: story.thumbnail_url }} style={styles.thumbnail} />
           ) : (
             <View style={styles.thumbnailPlaceholder}>
               <BookOpen size={24} color={Colors.primary} />
@@ -119,7 +143,7 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
           </View>
 
           <Text style={styles.description} numberOfLines={3}>
-            {story.description}
+            {story.user_prompt}
           </Text>
 
           {/* Story metadata */}
@@ -132,11 +156,11 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
                 </Text>
               </View>
 
-              {story.duration && story.duration > 0 && (
+              {story.total_duration && story.total_duration > 0 && (
                 <View style={styles.durationContainer}>
                   <Music size={12} color={Colors.textSecondary} />
                   <Text style={styles.durationText}>
-                    {formatDuration(story.duration)}
+                    {formatDuration(story.total_duration)}
                   </Text>
                 </View>
               )}
@@ -146,7 +170,7 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
               <View style={styles.timeContainer}>
                 <Clock size={12} color={Colors.textSecondary} />
                 <Text style={styles.time}>
-                  {formatDistanceToNow(new Date(story.generatedTime))}
+                  {formatDistanceToNow(story.created_at)}
                 </Text>
               </View>
 
@@ -154,7 +178,7 @@ export default function StoryCard({ story, onPress }: StoryCardProps) {
                 <View style={styles.scenesContainer}>
                   <ImageIcon size={12} color={Colors.textSecondary} />
                   <Text style={styles.scenesText}>
-                    {story.scenes.length} scene{story.scenes.length !== 1 ? 's' : ''}
+                    {story.scenes!.length} scene{story.scenes!.length !== 1 ? 's' : ''}
                   </Text>
                 </View>
               )}

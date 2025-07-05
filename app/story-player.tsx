@@ -1,38 +1,34 @@
-// app/story-player.tsx
+// app/story-player.tsx - UPDATED WITHOUT REDUX
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Audio } from 'expo-av';
-import { useAppSelector, useAppDispatch } from '@/hooks';
-import { updateStoryPlayback, loadStoryDetails } from '@/store/slices/storySlice';
-import LoadingSpinner from '@/components/LoadingSpinner';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiService, type Story, type StoryScene } from '@/services/apiService';
 import { Colors } from '@/constants/Colors';
 import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, SkipBack, Volume2 } from 'lucide-react-native';
 
 export default function StoryPlayerScreen() {
-  const dispatch = useAppDispatch();
-  const { currentStory, serverStory, isLoadingStories } = useAppSelector((state) => state.stories);
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { token } = useAuth();
 
+  const [story, setStory] = useState<Story | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [currentPosition, setCurrentPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
 
-  const storyData = serverStory || currentStory;
-  const scenes = serverStory?.scenes || [];
-
   useEffect(() => {
-    // Load story details if we only have basic metadata
-    if (currentStory && !serverStory && !isLoadingStories) {
-      dispatch(loadStoryDetails(currentStory.id));
+    if (id) {
+      loadStoryDetails();
     }
-  }, [currentStory, serverStory, isLoadingStories, dispatch]);
+  }, [id]);
 
   useEffect(() => {
     // Load first scene audio when story data is available
-    if (scenes.length > 0) {
+    if (story?.scenes && story.scenes.length > 0) {
       loadSceneAudio(currentSceneIndex);
     }
 
@@ -42,19 +38,54 @@ export default function StoryPlayerScreen() {
         sound.unloadAsync();
       }
     };
-  }, [scenes]);
+  }, [story]);
+
+  const loadStoryDetails = async () => {
+    if (!id || !token) return;
+
+    try {
+      setIsLoading(true);
+      console.log('📖 Loading story details for:', id);
+      
+      const response = await apiService.fetchStoryStatus(id);
+      
+      if (response.success && response.story) {
+        const storyData: Story = {
+          story_id: response.story.story_id || id,
+          title: response.story.title || 'Unknown Story',
+          user_prompt: response.story.user_prompt || '',
+          created_at: response.story.generated_at || response.story.created_at || '',
+          total_scenes: response.story.total_scenes || 0,
+          total_duration: response.story.total_duration || 0,
+          status: response.story.status || 'completed',
+          thumbnail_url: response.story.thumbnail_url,
+          scenes: response.story.scenes || [],
+        };
+        
+        setStory(storyData);
+        console.log('✅ Story loaded:', storyData.title);
+      } else {
+        Alert.alert('Error', 'Story not found');
+        router.back();
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading story:', error);
+      Alert.alert('Error', error.message || 'Failed to load story');
+      router.back();
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const loadSceneAudio = async (sceneIndex: number) => {
-    if (sceneIndex >= scenes.length) return;
+    if (!story?.scenes || sceneIndex >= story.scenes.length) return;
 
-    const scene = scenes[sceneIndex];
+    const scene = story.scenes[sceneIndex];
 
     if (!scene.audio_url) {
       console.warn('No audio URL for scene', sceneIndex);
       return;
     }
-
-    setIsLoading(true);
 
     try {
       // Unload previous audio
@@ -86,8 +117,6 @@ export default function StoryPlayerScreen() {
     } catch (error) {
       console.error('Error loading audio:', error);
       Alert.alert('Audio Error', 'Failed to load audio for this scene.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -98,7 +127,7 @@ export default function StoryPlayerScreen() {
       setIsPlaying(status.isPlaying || false);
 
       // Auto-advance to next scene when current one finishes
-      if (status.didJustFinish && currentSceneIndex < scenes.length - 1) {
+      if (status.didJustFinish && story?.scenes && currentSceneIndex < story.scenes.length - 1) {
         handleNextScene();
       }
     }
@@ -123,7 +152,7 @@ export default function StoryPlayerScreen() {
   };
 
   const handleNextScene = async () => {
-    if (currentSceneIndex < scenes.length - 1) {
+    if (story?.scenes && currentSceneIndex < story.scenes.length - 1) {
       const nextIndex = currentSceneIndex + 1;
       setCurrentSceneIndex(nextIndex);
       await loadSceneAudio(nextIndex);
@@ -169,20 +198,10 @@ export default function StoryPlayerScreen() {
   };
 
   const getCurrentScene = () => {
-    return scenes[currentSceneIndex];
+    return story?.scenes?.[currentSceneIndex];
   };
 
-  if (!storyData) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Story not found</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (isLoadingStories) {
+  if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -192,7 +211,19 @@ export default function StoryPlayerScreen() {
           <Text style={styles.headerTitle}>Loading Story...</Text>
           <View style={styles.headerSpacer} />
         </View>
-        <LoadingSpinner message="Loading story details..." />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading story details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!story) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Story not found</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -211,13 +242,13 @@ export default function StoryPlayerScreen() {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.storyInfo}>
-          <Text style={styles.storyTitle}>{storyData.title}</Text>
-          <Text style={styles.storyDescription}>{storyData.description}</Text>
+          <Text style={styles.storyTitle}>{story.title}</Text>
+          <Text style={styles.storyDescription}>{story.user_prompt}</Text>
 
-          {scenes.length > 0 && (
+          {story.scenes && story.scenes.length > 0 && (
             <View style={styles.sceneInfo}>
               <Text style={styles.sceneCounter}>
-                Scene {currentSceneIndex + 1} of {scenes.length}
+                Scene {currentSceneIndex + 1} of {story.scenes.length}
               </Text>
             </View>
           )}
@@ -236,7 +267,7 @@ export default function StoryPlayerScreen() {
 
         {/* Audio player controls */}
         <View style={styles.playerContainer}>
-          {scenes.length > 0 ? (
+          {story.scenes && story.scenes.length > 0 ? (
             <>
               <View style={styles.progressContainer}>
                 <View style={styles.progressBar}>
@@ -269,11 +300,9 @@ export default function StoryPlayerScreen() {
                 <TouchableOpacity
                   onPress={handlePlayPause}
                   style={styles.playButton}
-                  disabled={isLoading || !sound}
+                  disabled={!sound}
                 >
-                  {isLoading ? (
-                    <LoadingSpinner size="small" />
-                  ) : isPlaying ? (
+                  {isPlaying ? (
                     <Pause size={40} color={Colors.background} />
                   ) : (
                     <Play size={40} color={Colors.background} />
@@ -287,9 +316,9 @@ export default function StoryPlayerScreen() {
                 <TouchableOpacity
                   onPress={handleNextScene}
                   style={styles.controlButton}
-                  disabled={currentSceneIndex === scenes.length - 1}
+                  disabled={!story.scenes || currentSceneIndex === story.scenes.length - 1}
                 >
-                  <SkipForward size={28} color={currentSceneIndex === scenes.length - 1 ? Colors.textSecondary : Colors.text} />
+                  <SkipForward size={28} color={(!story.scenes || currentSceneIndex === story.scenes.length - 1) ? Colors.textSecondary : Colors.text} />
                 </TouchableOpacity>
               </View>
             </>
@@ -309,15 +338,15 @@ export default function StoryPlayerScreen() {
             {currentScene ? `Scene ${currentSceneIndex + 1}` : 'Story Content'}
           </Text>
           <Text style={styles.contentText}>
-            {currentScene?.text || storyData.content || 'No content available.'}
+            {currentScene?.text || story.user_prompt || 'No content available.'}
           </Text>
         </View>
 
         {/* All scenes list */}
-        {scenes.length > 1 && (
+        {story.scenes && story.scenes.length > 1 && (
           <View style={styles.scenesContainer}>
             <Text style={styles.contentTitle}>All Scenes</Text>
-            {scenes.map((scene, index) => (
+            {story.scenes.map((scene, index) => (
               <TouchableOpacity
                 key={scene.scene_number}
                 style={[
@@ -379,6 +408,15 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: Colors.textSecondary,
   },
   storyInfo: {
     paddingHorizontal: 24,

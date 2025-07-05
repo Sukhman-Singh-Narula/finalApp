@@ -1,5 +1,5 @@
-// hooks/useTokenManager.ts - TOKEN MANAGEMENT HOOK
-import { useEffect, useCallback, useRef } from 'react';
+// hooks/useTokenManager.tsx - FIXED WITH CORRECT EXTENSION
+import React, { useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService } from '@/services/apiService';
 import { Alert, AppState } from 'react-native';
